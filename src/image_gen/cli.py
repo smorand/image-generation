@@ -37,7 +37,8 @@ def generate(
     model: Annotated[
         Path,
         typer.Option(
-            "--model", "-m",
+            "--model",
+            "-m",
             help="Path to safetensors SDXL model checkpoint",
             exists=True,
             file_okay=True,
@@ -47,28 +48,32 @@ def generate(
     prompt: Annotated[
         str,
         typer.Option(
-            "--prompt", "-p",
+            "--prompt",
+            "-p",
             help="Positive prompt for image generation",
         ),
     ],
     negative_prompt: Annotated[
         Optional[str],
         typer.Option(
-            "--negative-prompt", "-n",
+            "--negative-prompt",
+            "-n",
             help="Negative prompt (defaults to quality-focused)",
         ),
     ] = None,
     output: Annotated[
         Path,
         typer.Option(
-            "--output", "-o",
+            "--output",
+            "-o",
             help="Output image path (will be saved as .jpg)",
         ),
     ] = Path("./output.jpg"),
     width: Annotated[
         int,
         typer.Option(
-            "--width", "-W",
+            "--width",
+            "-W",
             help="Image width (SDXL native: 1024)",
             min=512,
             max=2048,
@@ -77,7 +82,8 @@ def generate(
     height: Annotated[
         int,
         typer.Option(
-            "--height", "-H",
+            "--height",
+            "-H",
             help="Image height (SDXL native: 1024)",
             min=512,
             max=2048,
@@ -86,7 +92,8 @@ def generate(
     steps: Annotated[
         int,
         typer.Option(
-            "--steps", "-s",
+            "--steps",
+            "-s",
             help="Number of sampling steps",
             min=1,
             max=150,
@@ -95,12 +102,13 @@ def generate(
     cfg_scale: Annotated[
         float,
         typer.Option(
-            "--cfg-scale", "-c",
+            "--cfg-scale",
+            "-c",
             help="Classifier-free guidance scale",
             min=1.0,
             max=30.0,
         ),
-    ] = 10.0,
+    ] = 4.0,
     scheduler: Annotated[
         str,
         typer.Option(
@@ -127,7 +135,8 @@ def generate(
     batch_size: Annotated[
         int,
         typer.Option(
-            "--batch-size", "-b",
+            "--batch-size",
+            "-b",
             help="Number of images to generate",
             min=1,
             max=8,
@@ -197,8 +206,7 @@ def generate(
     # Validate scheduler
     if scheduler not in SUPPORTED_SCHEDULERS:
         typer.echo(
-            f"Error: Unknown scheduler '{scheduler}'. "
-            f"Supported: {', '.join(SUPPORTED_SCHEDULERS)}",
+            f"Error: Unknown scheduler '{scheduler}'. " f"Supported: {', '.join(SUPPORTED_SCHEDULERS)}",
             err=True,
         )
         raise typer.Exit(1)
@@ -249,10 +257,7 @@ def generate(
     typer.echo(f"  Prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
     typer.echo(f"  Size: {width}x{height}, Steps: {steps}, CFG: {cfg_scale}")
     if hires_fix:
-        typer.echo(
-            f"  Hi-res fix: {hires_scale}x, {hires_steps} steps, "
-            f"denoising {hires_denoising}"
-        )
+        typer.echo(f"  Hi-res fix: {hires_scale}x, {hires_steps} steps, " f"denoising {hires_denoising}")
 
     images = pipeline.generate(config)
 
@@ -313,7 +318,7 @@ def info() -> None:
 
     typer.echo("\nDefault Settings:")
     typer.echo("  Width: 1024, Height: 1024")
-    typer.echo("  Steps: 30, CFG Scale: 10.0")
+    typer.echo("  Steps: 30, CFG Scale: 4.0")
     typer.echo("  CLIP Skip: 2, Batch Size: 1")
 
     typer.echo("\nPrompt Weighting (compel syntax):")
@@ -321,7 +326,7 @@ def info() -> None:
     typer.echo("  (word:0.8)  - Decrease weight to 0.8x")
     typer.echo("  word++      - Increase weight (each + is 1.1x)")
     typer.echo("  word--      - Decrease weight (each - is 0.9x)")
-    typer.echo("  \"prompt A\" AND \"prompt B\"  - Blend prompts")
+    typer.echo('  "prompt A" AND "prompt B"  - Blend prompts')
     typer.echo("\n  Long prompts (>77 tokens) are supported automatically.")
 
 
