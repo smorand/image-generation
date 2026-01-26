@@ -5,6 +5,7 @@
 *.webp
 *.yaml
 *.aes
+*.sh
 
 # Python
 __pycache__/
