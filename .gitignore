@@ -7,6 +7,9 @@
 *.aes
 *.sh
 
+# Local scratch helper
+.hip
+
 # Python
 __pycache__/
 *.py[cod]
