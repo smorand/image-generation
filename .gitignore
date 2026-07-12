@@ -12,6 +12,14 @@
 # Local scratch helper
 .hip
 
+# Local models, outputs, prompt working files (never commit)
+/models
+/out/
+prompts*
+generated*
+*.safetensors
+*.mp4
+
 # Python
 __pycache__/
 *.py[cod]

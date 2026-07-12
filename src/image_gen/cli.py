@@ -366,6 +366,18 @@ def generate_var(
             dir_okay=False,
         ),
     ],
+    set_pause: Annotated[
+        bool,
+        typer.Option("--pause", help="Set config status to 'pause' and exit (no generation)"),
+    ] = False,
+    set_live: Annotated[
+        bool,
+        typer.Option("--live", help="Set config status to 'live' and exit (no generation)"),
+    ] = False,
+    set_stop: Annotated[
+        bool,
+        typer.Option("--stop", help="Set config status to 'stop' and exit (no generation)"),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -426,7 +438,22 @@ def generate_var(
     """
     from .runner import dry_run as _dry_run
     from .runner import run as _run
+    from .runner import set_status
     from .variables import load_spec
+
+    # Status flags are exclusive and short-circuit: edit the file and exit.
+    status_flags = [("live", set_live), ("pause", set_pause), ("stop", set_stop)]
+    chosen = [name for name, on in status_flags if on]
+    if chosen:
+        if len(chosen) > 1:
+            typer.echo(
+                f"Error: --live/--pause/--stop are mutually exclusive (got {', '.join(chosen)})",
+                err=True,
+            )
+            raise typer.Exit(1)
+        set_status(config, chosen[0])
+        typer.echo(f"{config}: status set to '{chosen[0]}'.")
+        return
 
     if scheduler is not None and scheduler not in SUPPORTED_SCHEDULERS:
         typer.echo(
