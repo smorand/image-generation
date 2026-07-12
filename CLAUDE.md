@@ -2,9 +2,10 @@
 
 ## Overview
 
-CLI tool for SDXL image generation using safetensors models with LoRA and embedding support.
+CLI tools for local generation: **`image-gen`** (SDXL images, safetensors + LoRA
++ embeddings) and **`video-gen`** (image-to-video, Wan 2.2 / LTX-Video).
 
-**Tech Stack:** Python 3.11+, diffusers, torch, typer, safetensors
+**Tech Stack:** Python 3.11+, diffusers, torch, typer, safetensors, imageio-ffmpeg
 
 ## Key Commands
 
@@ -15,6 +16,16 @@ uv sync
 # Generate image
 image-gen generate --model path.safetensors --prompt "text" --output out.png
 
+# Variable-driven continuous generation (YAML spec, hot-reloadable)
+image-gen generate-var --config spec.yaml --dry-run   # preview prompts
+image-gen generate-var --config spec.yaml             # run the loop
+image-gen generate-var --config spec.yaml --pause     # set status only (also --live/--stop), no generation
+
+# Image-to-video (backend: ltx fast | wan quality)
+video-gen generate -i seeds/cat.png -p "kitten blinking, slow zoom" -b ltx -d 3 -o out/cat.mp4
+video-gen generate-var --config video-spec.example.yaml   # hot-reloadable batch
+video-gen info
+
 # Show info
 image-gen info
 ```
@@ -24,22 +35,45 @@ image-gen info
 ```
 src/image_gen/
 ├── __init__.py       # Package init
-├── cli.py            # Typer CLI entry point
+├── cli.py            # Typer CLI entry point (generate, generate-var, info)
 ├── pipeline.py       # SDXLPipeline class
 ├── schedulers.py     # Scheduler factory (7 schedulers)
 ├── lora.py           # LoRA loading utilities
-└── embeddings.py     # Textual inversion support
+├── ip_adapter.py     # IP-Adapter presets + reference-image loading
+├── embeddings.py     # Textual inversion support
+├── variables.py      # generate-var: YAML spec + variable resolution engine
+├── runner.py         # generate-var: hot-reloadable control loop
+└── metadata.py       # EXIF UserComment embedding (JPEG + PNG)
+
+src/video_gen/        # image-to-video CLI (reuses image_gen.variables engine)
+├── backends.py       # Wan/LTX registry, frame arithmetic, defaults
+├── pipeline.py       # VideoPipeline: load backend, generate -> [PIL frames]
+├── encode.py         # frames -> H.264 MP4 (imageio-ffmpeg)
+├── metadata.py       # MP4 comment tag + <name>.json sidecar
+├── variables.py      # VideoVarSpec (adds template_input)
+├── runner.py         # video generate-var loop (hot-reload)
+└── cli.py            # video-gen: generate, generate-var, info
 ```
 
 ## Conventions
 
+- **Model cache:** HuggingFace models default to `~/.cache/models/hf` (set in
+  `image_gen`/`video_gen` `__init__`, only if `HF_HUB_CACHE`/`HF_HOME` unset).
+  Flat local checkpoints live in `~/.cache/models/` and are passed via `--model`.
 - **Entry point:** `image-gen` command (defined in pyproject.toml)
 - **Pipeline:** `SDXLPipeline` class wraps diffusers `StableDiffusionXLPipeline`
 - **Config:** `GenerationConfig` dataclass holds all generation parameters
 - **Device auto-detection:** CUDA > MPS > CPU
+- **Tests:** run with `uv run python -m pytest` (not `uv run pytest`, which may
+  resolve a pytest outside the venv)
+- **generate-var spec:** starter file at `spec.example.yaml`; placeholders use
+  `<name>`; metadata (incl. resolved `variables` sub-dict) read via
+  `~/.local/bin/get_info.sh`
 
 ## Documentation Index
 
 | File | Topic |
 |------|-------|
 | `.agent_docs/sdxl-pipeline.md` | SDXL pipeline details, optimizations, troubleshooting |
+| `.agent_docs/generate-var.md` | generate-var spec format, control model, metadata |
+| `.agent_docs/video-gen.md` | video-gen backends (Wan/LTX), spec, Mac perf, metadata |

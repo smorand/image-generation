@@ -21,6 +21,7 @@ logging.getLogger("compel").setLevel(logging.ERROR)
 
 import typer
 
+from .ip_adapter import SUPPORTED_IP_ADAPTERS, load_reference_images
 from .metadata import GenerationMetadata, save_image_with_metadata
 from .pipeline import DEFAULT_NEGATIVE_PROMPT, GenerationConfig, SDXLPipeline
 from .schedulers import SUPPORTED_SCHEDULERS
@@ -166,6 +167,30 @@ def generate(
             help="Textual inversion embedding path (repeatable)",
         ),
     ] = None,
+    # IP-Adapter options (reference-image identity/style conditioning)
+    ip_adapter_image: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--ip-adapter-image",
+            help="Reference image for IP-Adapter identity/style (repeatable)",
+        ),
+    ] = None,
+    ip_adapter: Annotated[
+        str,
+        typer.Option(
+            "--ip-adapter",
+            help=f"IP-Adapter preset. Supported: {', '.join(SUPPORTED_IP_ADAPTERS)}",
+        ),
+    ] = "face",
+    ip_adapter_scale: Annotated[
+        Optional[float],
+        typer.Option(
+            "--ip-adapter-scale",
+            help="IP-Adapter conditioning strength (0-1, default 0.6)",
+            min=0.0,
+            max=1.0,
+        ),
+    ] = None,
     # Hi-res fix options
     hires_fix: Annotated[
         bool,
@@ -211,6 +236,15 @@ def generate(
         )
         raise typer.Exit(1)
 
+    # Validate IP-Adapter preset
+    if ip_adapter not in SUPPORTED_IP_ADAPTERS:
+        typer.echo(
+            f"Error: Unknown IP-Adapter '{ip_adapter}'. "
+            f"Supported: {', '.join(SUPPORTED_IP_ADAPTERS)}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     # Generate random seed if not provided
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
@@ -235,6 +269,17 @@ def generate(
         tokens = pipeline.load_embeddings(embedding)
         typer.echo(f"Available tokens: {', '.join(tokens)}")
 
+    # Load IP-Adapter (identity/style conditioning from reference images)
+    ip_adapter_ref_images = []
+    effective_ip_scale: Optional[float] = None
+    if ip_adapter_image:
+        typer.echo(f"Loading IP-Adapter ({ip_adapter})...")
+        effective_ip_scale = pipeline.load_ip_adapter(ip_adapter, ip_adapter_scale)
+        ip_adapter_ref_images = load_reference_images(ip_adapter_image)
+        typer.echo(
+            f"  {len(ip_adapter_ref_images)} reference image(s), scale {effective_ip_scale}"
+        )
+
     # Create generation config
     config = GenerationConfig(
         prompt=prompt,
@@ -250,6 +295,7 @@ def generate(
         hires_scale=hires_scale,
         hires_steps=hires_steps,
         hires_denoising=hires_denoising,
+        ip_adapter_images=ip_adapter_ref_images,
     )
 
     # Generate images
@@ -281,6 +327,9 @@ def generate(
         hires_scale=hires_scale if hires_fix else None,
         hires_steps=hires_steps if hires_fix else None,
         hires_denoising=hires_denoising if hires_fix else None,
+        ip_adapter=ip_adapter if ip_adapter_image else None,
+        ip_adapter_images=list(ip_adapter_image) if ip_adapter_image else None,
+        ip_adapter_scale=effective_ip_scale,
     )
 
     # Save images as JPG with EXIF metadata
@@ -288,19 +337,135 @@ def generate(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if batch_size == 1:
-        save_image_with_metadata(images[0], output_path, metadata)
-        typer.echo(f"Saved: {output_path.with_suffix('.jpg')}")
+        saved = save_image_with_metadata(images[0], output_path, metadata)
+        typer.echo(f"Saved: {saved}")
     else:
         # Save multiple images with numbered suffixes
         stem = output_path.stem
         parent = output_path.parent
+        suffix = output_path.suffix or ".jpg"
 
         for i, img in enumerate(images):
-            path = parent / f"{stem}_{i:02d}.jpg"
-            save_image_with_metadata(img, path, metadata)
-            typer.echo(f"Saved: {path}")
+            path = parent / f"{stem}_{i:02d}{suffix}"
+            saved = save_image_with_metadata(img, path, metadata)
+            typer.echo(f"Saved: {saved}")
 
     typer.echo("Done!")
+
+
+@app.command(name="generate-var")
+def generate_var(
+    config: Annotated[
+        Path,
+        typer.Option(
+            "--config",
+            "-C",
+            help="YAML spec file (template_prompt, template_output, variables, ...)",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+        ),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print resolved prompts without loading the model or generating",
+        ),
+    ] = False,
+    dry_run_count: Annotated[
+        int,
+        typer.Option(
+            "--dry-run-count",
+            help="How many sample prompts to print in --dry-run",
+            min=1,
+            max=200,
+        ),
+    ] = 10,
+    poll: Annotated[
+        float,
+        typer.Option(
+            "--poll",
+            help="Seconds between config-file reload checks",
+            min=1.0,
+            max=60.0,
+        ),
+    ] = 5.0,
+    var_seed: Annotated[
+        Optional[int],
+        typer.Option(
+            "--var-seed",
+            help="Seed for the variable RNG (reproducible prompt draws)",
+        ),
+    ] = None,
+    # Overrides for the YAML `defaults:` block (only applied when set).
+    model: Annotated[
+        Optional[Path],
+        typer.Option("--model", "-m", help="Override defaults.model", exists=True, dir_okay=False),
+    ] = None,
+    negative_prompt: Annotated[
+        Optional[str],
+        typer.Option("--negative-prompt", "-n", help="Override negative_prompt"),
+    ] = None,
+    steps: Annotated[Optional[int], typer.Option("--steps", "-s", min=1, max=150)] = None,
+    cfg_scale: Annotated[Optional[float], typer.Option("--cfg-scale", "-c", min=1.0, max=30.0)] = None,
+    width: Annotated[Optional[int], typer.Option("--width", "-W", min=512, max=2048)] = None,
+    height: Annotated[Optional[int], typer.Option("--height", "-H", min=512, max=2048)] = None,
+    scheduler: Annotated[Optional[str], typer.Option("--scheduler")] = None,
+    clip_skip: Annotated[Optional[int], typer.Option("--clip-skip", min=1, max=4)] = None,
+    lora: Annotated[Optional[list[str]], typer.Option("--lora", help="Override defaults.lora (repeatable)")] = None,
+    vae: Annotated[
+        Optional[Path],
+        typer.Option("--vae", help="Override defaults.vae", exists=True, dir_okay=False),
+    ] = None,
+) -> None:
+    """Run continuous, variable-driven generation from a YAML spec.
+
+    The spec drives a hot-reloadable loop: edit the file while it runs to change
+    prompts, variables, loop count, or set status to pause/stop.
+    """
+    from .runner import dry_run as _dry_run
+    from .runner import run as _run
+    from .variables import load_spec
+
+    if scheduler is not None and scheduler not in SUPPORTED_SCHEDULERS:
+        typer.echo(
+            f"Error: Unknown scheduler '{scheduler}'. Supported: {', '.join(SUPPORTED_SCHEDULERS)}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    overrides = {
+        "model": str(model) if model else None,
+        "negative_prompt": negative_prompt,
+        "steps": steps,
+        "cfg_scale": cfg_scale,
+        "width": width,
+        "height": height,
+        "scheduler": scheduler,
+        "clip_skip": clip_skip,
+        "lora": lora if lora else None,
+        "vae": str(vae) if vae else None,
+    }
+
+    try:
+        if dry_run:
+            spec = load_spec(config)
+            _dry_run(spec, random.Random(var_seed), dry_run_count, typer.echo)
+            return
+        made = _run(
+            config_path=config,
+            overrides=overrides,
+            poll=poll,
+            var_rng=random.Random(var_seed) if var_seed is not None else None,
+            echo=typer.echo,
+        )
+        typer.echo(f"Done. Generated {made} image(s).")
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except KeyboardInterrupt:
+        typer.echo("\nInterrupted.")
 
 
 @app.command()
@@ -320,6 +485,12 @@ def info() -> None:
     typer.echo("  Width: 1024, Height: 1024")
     typer.echo("  Steps: 30, CFG Scale: 4.0")
     typer.echo("  CLIP Skip: 2, Batch Size: 1")
+
+    typer.echo("\nIP-Adapter Presets (reference-image conditioning):")
+    for name in SUPPORTED_IP_ADAPTERS:
+        default = " (default)" if name == "face" else ""
+        typer.echo(f"  - {name}{default}")
+    typer.echo("  Usage: --ip-adapter-image face.jpg [--ip-adapter face] [--ip-adapter-scale 0.6]")
 
     typer.echo("\nPrompt Weighting (compel syntax):")
     typer.echo("  (word:1.2)  - Increase weight to 1.2x")

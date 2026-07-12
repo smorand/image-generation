@@ -1,6 +1,6 @@
 """SDXL pipeline loader and image generation."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
@@ -8,6 +8,8 @@ from diffusers import AutoencoderKL, StableDiffusionXLPipeline
 from PIL import Image
 
 from .embeddings import load_embeddings
+from .ip_adapter import build_ip_adapter_image
+from .ip_adapter import load_ip_adapter as _load_ip_adapter
 from .lora import load_loras
 from .prompt_encoding import SDXLPromptEncoder
 from .schedulers import get_scheduler
@@ -36,6 +38,8 @@ class GenerationConfig:
     hires_scale: float = 1.5
     hires_steps: int = 15
     hires_denoising: float = 0.5
+    # IP-Adapter (identity/style conditioning from reference images)
+    ip_adapter_images: list[Image.Image] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.negative_prompt is None:
@@ -92,6 +96,8 @@ class SDXLPipeline:
         self._prompt_encoder: SDXLPromptEncoder | None = None
         self._loaded_loras: list[str] = []
         self._loaded_embeddings: list[str] = []
+        self._ip_adapter_preset: str | None = None
+        self._ip_adapter_scale: float | None = None
 
     def load(self) -> None:
         """Load the pipeline into memory."""
@@ -158,6 +164,25 @@ class SDXLPipeline:
         self._loaded_embeddings = embedding_paths
         return tokens
 
+    def load_ip_adapter(self, preset: str, scale: float | None = None) -> float:
+        """
+        Load an IP-Adapter for reference-image conditioning.
+
+        Args:
+            preset: IP-Adapter preset name (e.g. "face").
+            scale: Conditioning strength (0-1). None uses the preset default.
+
+        Returns:
+            The effective scale applied.
+        """
+        self.load()
+        effective_scale = _load_ip_adapter(
+            self.pipeline, preset, scale, self.device, self.dtype
+        )
+        self._ip_adapter_preset = preset
+        self._ip_adapter_scale = effective_scale
+        return effective_scale
+
     def set_clip_skip(self, clip_skip: int) -> None:
         """
         Set CLIP skip layers.
@@ -196,9 +221,17 @@ class SDXLPipeline:
             negative_prompt=config.negative_prompt,
         )
 
+        # Shape IP-Adapter reference image(s) if any were loaded
+        ip_adapter_kwargs = {}
+        if config.ip_adapter_images:
+            ip_adapter_kwargs["ip_adapter_image"] = build_ip_adapter_image(
+                config.ip_adapter_images
+            )
+
         # Generate at base resolution
         result = self.pipeline(
             **prompt_kwargs,
+            **ip_adapter_kwargs,
             width=config.width,
             height=config.height,
             num_inference_steps=config.steps,
@@ -217,6 +250,7 @@ class SDXLPipeline:
                 config=config,
                 generator=generator,
                 prompt_kwargs=prompt_kwargs,
+                ip_adapter_kwargs=ip_adapter_kwargs,
             )
 
         return images
@@ -227,6 +261,7 @@ class SDXLPipeline:
         config: GenerationConfig,
         generator: torch.Generator | None,
         prompt_kwargs: dict,
+        ip_adapter_kwargs: dict | None = None,
     ) -> list[Image.Image]:
         """
         Apply hi-res fix (img2img upscaling pass).
@@ -236,14 +271,18 @@ class SDXLPipeline:
             config: Generation config
             generator: Random generator for reproducibility
             prompt_kwargs: Pre-encoded prompt embeddings
+            ip_adapter_kwargs: IP-Adapter image kwargs to carry into the pass
 
         Returns:
             Upscaled images
         """
         from diffusers import StableDiffusionXLImg2ImgPipeline
 
-        # Create img2img pipeline from loaded pipeline
-        img2img = StableDiffusionXLImg2ImgPipeline(
+        ip_adapter_kwargs = ip_adapter_kwargs or {}
+
+        # Create img2img pipeline from loaded pipeline. Reuse the IP-Adapter
+        # image encoder/feature extractor so the identity carries into the pass.
+        img2img_components = dict(
             vae=self.pipeline.vae,
             text_encoder=self.pipeline.text_encoder,
             text_encoder_2=self.pipeline.text_encoder_2,
@@ -252,6 +291,10 @@ class SDXLPipeline:
             unet=self.pipeline.unet,
             scheduler=self.pipeline.scheduler,
         )
+        if self._ip_adapter_preset is not None:
+            img2img_components["image_encoder"] = self.pipeline.image_encoder
+            img2img_components["feature_extractor"] = self.pipeline.feature_extractor
+        img2img = StableDiffusionXLImg2ImgPipeline(**img2img_components)
 
         upscaled_images = []
         target_width = int(config.width * config.hires_scale)
@@ -264,6 +307,7 @@ class SDXLPipeline:
             # Run img2img pass with pre-encoded embeddings
             result = img2img(
                 **prompt_kwargs,
+                **ip_adapter_kwargs,
                 image=resized,
                 num_inference_steps=config.hires_steps,
                 strength=config.hires_denoising,

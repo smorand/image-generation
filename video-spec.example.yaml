@@ -1,0 +1,49 @@
+# video generate-var spec: continuous, hot-reloadable image-to-video.
+# Run:  video-gen generate-var --config video-spec.example.yaml --dry-run
+#       video-gen generate-var --config video-spec.example.yaml
+# Edit this file while it runs: prompts, variables, backend, loop and status
+# reload live. Same variable engine as image-gen's generate-var.
+
+status: live                 # live | pause | stop (forced to "live" on startup)
+loop: 0                      # 0 = infinite, N > 0 = stop after N clips
+
+# Source image each clip animates. Three forms:
+#   "seeds/cat.png"            same image every clip
+#   "seeds/img_<number>.png"   pairs with the loop counter (animate a batch)
+#   "seeds/*.png"              random existing file per clip (glob or a dir)
+template_input: "seeds/cat.png"
+
+template_output: "out/clip_<number>.mp4"   # <number> = 10-digit counter, <seed> also available
+template_prompt: "a fluffy ginger kitten, <motion>, <camera>, <light>, photorealistic, smooth natural motion"
+negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, extra limbs, morphing"
+
+defaults:
+  backend: ltx               # ltx (fast) | wan (quality)
+  duration: 3.0              # seconds; snapped to the backend frame arithmetic
+  # num_frames: 73           # optional: set frames explicitly instead of duration
+  fps: 24
+  width: 704
+  height: 480
+  steps: 40                  # ltx ~40, wan ~30
+  guidance: 3.0              # ltx ~3.0, wan ~5.0
+  offload: false             # true = sequential CPU offload (Wan on tight memory)
+
+variables:
+  motion:
+    - "slowly blinking its eyes"
+    - "gently turning its head"
+    - "ears twitching"
+    - "tail swaying softly"
+    - value: "yawning then licking a paw"
+      weight: 2
+
+  camera:
+    - "static shot"
+    - "slow zoom in"
+    - "gentle pan left"
+    - "subtle handheld motion"
+
+  light:
+    - "soft window light"
+    - "warm golden hour glow"
+    - "cozy indoor lighting"

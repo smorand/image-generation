@@ -1,0 +1,66 @@
+# generate-var spec: continuous, hot-reloadable, variable-driven generation.
+# Run:  image-gen generate-var --config spec.example.yaml
+# Edit this file while it runs: prompts, variables, loop and status reload live.
+
+status: live                 # live | pause | stop (forced to "live" on startup)
+loop: 0                      # 0 = infinite, N > 0 = stop after N images
+
+template_output: "out/img_<number>.png"   # <number> = 10-digit counter, <seed> also available
+template_prompt: "solo, 18 years old, <eth> girl, small by size, short girl, tidy body, ultra slim, small tits, high detailed skin, skin pores, young pretty face, <hair>, smiling with closed mouth, <clothes>, <place>, natural, no makeup, <light>, highly detailed, ultra quality, sharp focus, ultra-realistic, photography"
+negative_prompt: "blurry, low quality, bad anatomy, worst quality, deformed, extra limbs"
+
+defaults:
+  model: "models/your-model.safetensors"
+  steps: 30
+  cfg_scale: 4.0
+  width: 1024
+  height: 1024
+  scheduler: euler_a
+  clip_skip: 2
+
+variables:
+  eth:
+    - inuit
+
+  hair:
+    - "long black hair"
+    - "short black hair"
+
+  light:
+    - "natural lighting"
+    - "golden hour lighting"
+    - "soft indoor lighting"
+
+  place:
+    - "in a flower meadow full of wildflowers"
+    - "on a sandy beach with turquoise sea"
+    - "on a forest path with tall trees"
+    - "in a cozy bedroom with morning light"
+    - "on a city street at golden hour"
+
+  clothes:
+    # An option is a plain string (weight 1) ...
+    - "wearing a floral summer dress"
+    - "wearing a white crop top and denim shorts"
+    # ... or a mapping with weight and nested variables (recursive).
+    - value: "wearing a <color> bikini"
+      weight: 2
+      variables:
+        color:
+          - {value: "red"}
+          - {value: "blue"}
+          - {value: "white"}
+    - value: "wearing <top> with <bottom>"
+      variables:
+        top:
+          - value: "a <color> tank top"
+            variables:
+              color:
+                - {value: "", weight: 4}   # 4x more likely: no color word
+                - white
+                - black
+                - striped
+        bottom:
+          - "a flowing midi skirt"
+          - "high-waist shorts"
+          - "jeans"

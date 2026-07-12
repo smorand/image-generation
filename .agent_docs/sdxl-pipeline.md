@@ -44,6 +44,31 @@ Enabled by default:
 - Multiple LoRAs supported via repeated `--lora` flags
 - Uses diffusers' `load_lora_weights()` with PEFT backend
 
+## IP-Adapter
+
+Reference-image conditioning for consistent identity/style (`ip_adapter.py`).
+
+- Activated by `--ip-adapter-image` (repeatable). Preset via `--ip-adapter`
+  (`face` default, `plus`, `standard`); strength via `--ip-adapter-scale` (0-1).
+- Weights + image encoder pulled from `h94/IP-Adapter` (HuggingFace cache).
+  `face`/`plus` use the ViT-H encoder (`models/image_encoder`); `standard` uses
+  ViT-bigG (`sdxl_models/image_encoder`). The encoder is loaded explicitly and
+  attached before `load_ip_adapter(..., image_encoder_folder=None)` so the right
+  encoder is used (autodetection would grab the wrong one for ViT-H presets).
+- Compatible with compel: `ip_adapter_image` is passed alongside the precomputed
+  `prompt_embeds`; the two conditionings are independent.
+- Multiple references for a single adapter are shaped as a nested list
+  (`[[img1, img2]]`) by `build_ip_adapter_image`; a single reference is passed bare.
+- Hi-res fix carries IP-Adapter through: the img2img pipeline is built with the
+  same `image_encoder`/`feature_extractor` and the reference image is re-passed.
+
+**Identity vs pose:** IP-Adapter fixes *who*, not the pose. For pose control, add
+ControlNet (OpenPose/Depth) later. For a permanent trained identity, use a LoRA.
+
+**CUDA note:** `enable_model_cpu_offload()` runs at the end of `load()`, before
+the IP-Adapter image encoder is attached. On CUDA, verify the encoder lands on
+the right device (offload hooks won't cover it). MPS/CPU are unaffected.
+
 ## Hi-Res Fix
 
 Two-pass generation:
