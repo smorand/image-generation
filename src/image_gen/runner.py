@@ -73,16 +73,21 @@ def _norm(value: Any) -> Any:
 _STATUS_LINE_RE = re.compile(r"^(\s*status\s*:\s*).*$", re.MULTILINE)
 
 
-def force_status_live(path: Path) -> None:
-    """Rewrite the ``status:`` line to ``live``, preserving the rest of the file."""
+def set_status(path: Path, status: str) -> None:
+    """Rewrite only the ``status:`` line to ``status``, preserving the rest of the file."""
     text = path.read_text(encoding="utf-8")
     if _STATUS_LINE_RE.search(text):
-        new_text = _STATUS_LINE_RE.sub(r"\1live", text, count=1)
+        new_text = _STATUS_LINE_RE.sub(rf"\g<1>{status}", text, count=1)
     else:
         sep = "" if text.endswith("\n") or text == "" else "\n"
-        new_text = f"{text}{sep}status: live\n"
+        new_text = f"{text}{sep}status: {status}\n"
     if new_text != text:
         path.write_text(new_text, encoding="utf-8")
+
+
+def force_status_live(path: Path) -> None:
+    """Rewrite the ``status:`` line to ``live``, preserving the rest of the file."""
+    set_status(path, "live")
 
 
 # --------------------------------------------------------------------------- #

@@ -90,6 +90,21 @@ variables:
   regex edit, comments and formatting preserved), so a run always begins live.
 - **loop**: `0` = infinite; `N` = exit after N images this run.
 
+### Setting status without generating
+
+`generate-var` accepts three exclusive flags that **only edit the `status:` line
+and exit** (no model load, no generation):
+
+```bash
+image-gen generate-var --config prompts.yaml --pause   # -> status: pause
+image-gen generate-var --config prompts.yaml --live    # -> status: live
+image-gen generate-var --config prompts.yaml --stop    # -> status: stop
+```
+
+Same surgical regex edit as startup (rest of the file untouched). Passing more
+than one is an error. A running loop picks up the change on its next poll, so
+these are the easy way to pause/resume/stop a background run from another shell.
+
 ## Hot reload
 
 The config file's mtime is checked every `--poll` seconds (default 5, and

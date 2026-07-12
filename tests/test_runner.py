@@ -12,6 +12,7 @@ from image_gen.runner import (
     force_status_live,
     run,
     scan_start_number,
+    set_status,
 )
 from image_gen.variables import Option, VarSpec
 
@@ -64,6 +65,18 @@ def test_force_status_live_appends_when_missing(tmp_path):
     text = p.read_text(encoding="utf-8")
     assert "loop: 1" in text
     assert "status: live" in text
+
+
+def test_set_status_rewrites_only_status_line(tmp_path):
+    p = tmp_path / "spec.yaml"
+    original = "status: live\nloop: 3\n# keep me\n"
+    p.write_text(original, encoding="utf-8")
+    for target in ("pause", "stop", "live"):
+        set_status(p, target)
+        text = p.read_text(encoding="utf-8")
+        assert f"status: {target}" in text
+        assert "loop: 3" in text
+        assert "# keep me" in text
 
 
 def test_scan_start_number_empty_dir(tmp_path):
