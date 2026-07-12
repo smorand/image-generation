@@ -1,0 +1,68 @@
+# generate-var spec: continuous, hot-reloadable, variable-driven generation.
+# Run:  image-gen generate-var --config spec.example.yaml
+# Edit this file while it runs: prompts, variables, loop and status reload live.
+status: live # live | pause | stop (forced to "live" on startup)
+loop: 0 # 0 = infinite, N > 0 = stop after N images
+template_output: "out/cat_<number>.png" # <number> = 10-digit counter, <seed> also available
+template_prompt: "<breed> cat, <age>, <pose>, <setting>, <light>, highly detailed, sharp focus, ultra-realistic, photography"
+negative_prompt: "blurry, low quality, deformed, extra limbs, watermark"
+defaults:
+  model: "models/your-model.safetensors"
+  steps: 30
+  cfg_scale: 4.0
+  width: 1024
+  height: 1024
+  scheduler: euler_a
+  clip_skip: 2
+variables:
+  breed:
+    - "tabby"
+    - "orange tabby"
+    - "black and white"
+    - "tortoiseshell"
+    - "siamese"
+  age:
+    - "kitten"
+    - "young cat"
+    - "adult cat"
+  pose:
+    - "sitting"
+    - "lying down"
+    - "stretching"
+    - "yawning"
+    - value: "curled up <where>"
+      variables:
+        where:
+          - "on a blanket"
+          - "on a wooden floor"
+          - "on a windowsill"
+  setting:
+    # A plain string (weight 1) ...
+    - "on a sunlit windowsill with plants"
+    - "in a cozy living room"
+    - "on a garden stone wall"
+    # ... or a mapping with weight and nested variables (recursive).
+    - value: "in a <season> garden"
+      weight: 2
+      variables:
+        season:
+          - {value: "spring", weight: 2}
+          - summer
+          - autumn
+    - value: "on a <surface> indoors"
+      variables:
+        surface:
+          - value: "<color> couch"
+            variables:
+              color:
+                - {value: "", weight: 3} # 3x more likely: no color word
+                - beige
+                - dark grey
+                - wooden
+          - "soft rug"
+          - "cat tree shelf"
+  light:
+    - "natural daylight"
+    - "golden hour sunlight"
+    - "soft window light"
+    - "overcast outdoor light"

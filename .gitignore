@@ -4,6 +4,8 @@
 *.jpeg
 *.webp
 *.yaml
+!spec.example.yaml
+!video-spec.example.yaml
 *.aes
 *.sh
 
