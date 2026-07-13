@@ -1,5 +1,6 @@
 """SDXL pipeline loader and image generation."""
 
+import gc
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -137,6 +138,21 @@ class SDXLPipeline:
         # Initialize prompt encoder for long prompt support
         self._prompt_encoder = SDXLPromptEncoder(self._pipeline)
 
+    def free_cache(self) -> None:
+        """Release cached device memory without unloading the pipeline.
+
+        SDXL leaves intermediate activations (latents, VAE decode buffers,
+        img2img wrappers) in the MPS/CUDA allocator cache after each call.
+        In the ``generate-var`` loop these accumulate across iterations and
+        starve the shared unified-memory pool, slowing every subsequent run.
+        Call this after each generation to hand the memory back.
+        """
+        gc.collect()
+        if self.device == "mps":
+            torch.mps.empty_cache()
+        elif self.device == "cuda":
+            torch.cuda.empty_cache()
+
     @property
     def pipeline(self) -> StableDiffusionXLPipeline:
         """Get the loaded pipeline."""
@@ -253,6 +269,11 @@ class SDXLPipeline:
                 ip_adapter_kwargs=ip_adapter_kwargs,
             )
 
+        # Hand cached activations back to the shared memory pool so a looped
+        # caller (generate-var) does not accumulate them across iterations.
+        del result
+        self.free_cache()
+
         return images
 
     def _apply_hires_fix(
@@ -316,5 +337,11 @@ class SDXLPipeline:
             )
 
             upscaled_images.append(result.images[0])
+
+        # Drop the per-call img2img wrapper before returning; its components are
+        # shared with the base pipeline, but the wrapper and its scratch buffers
+        # are not, and would otherwise linger in the allocator cache.
+        del img2img
+        self.free_cache()
 
         return upscaled_images
