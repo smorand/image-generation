@@ -254,6 +254,10 @@ video-gen generate -i seeds/cat.png -p "kitten blinking, slow zoom in" -b ltx -d
 # Higher quality with Wan (slower; add --offload on tight memory)
 video-gen generate -i seeds/cat.png -p "kitten turning its head" -b wan -d 3 -o out/cat_wan.mp4
 
+# Long clip past the native ceiling: chain short segments, one -p per segment
+video-gen chain -i seeds/cat.png \
+  -p "kitten blinking" -p "kitten looks left" -p "kitten yawns" -d 3 -o out/cat_long.mp4
+
 # Backends and defaults
 video-gen info
 
@@ -263,9 +267,13 @@ video-gen generate-var --config video-spec.example.yaml
 ```
 
 `--duration` is snapped to each backend's frame arithmetic (LTX `8k+1`, Wan
-`4k+1`). A clip longer than the backend native max (~5-10s) is not a single
-generation: produce segments and concat them (last frame -> next source image).
-Provenance is embedded in the MP4 `comment` tag and a `<name>.json` sidecar.
+`4k+1`). A single long clip denoises every frame in one tensor, so past the
+native max (~5-10s) it OOMs Metal (`Failed to allocate private MTLBuffer ...`).
+Use `video-gen chain` instead: it generates a **series of short segments**, each
+seeded by the last frame of the previous one and driven by its own `-p` prompt,
+then concatenates them into one MP4. Peak memory stays flat regardless of total
+length. Provenance is embedded in the MP4 `comment` tag and a `<name>.json`
+sidecar (with the full `prompt_series` for chained clips).
 
 **Mac reality:** clips are minutes, not seconds. LTX fast preset is the "minutes"
 path; Wan is the quality path and slower. FP8 is unusable on Metal, so both run

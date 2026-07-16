@@ -23,6 +23,8 @@ image-gen generate-var --config spec.yaml --pause     # set status only (also --
 
 # Image-to-video (backend: ltx fast | wan quality)
 video-gen generate -i seeds/cat.png -p "kitten blinking, slow zoom" -b ltx -d 3 -o out/cat.mp4
+# Long clip past the native ceiling: chain short segments (one -p per segment)
+video-gen chain -i seeds/cat.png -p "blinking" -p "looks left" -p "yawns" -d 3 -o out/long.mp4
 video-gen generate-var --config video-spec.example.yaml   # hot-reloadable batch
 video-gen info
 
@@ -48,6 +50,7 @@ src/image_gen/
 src/video_gen/        # image-to-video CLI (reuses image_gen.variables engine)
 ├── backends.py       # Wan/LTX registry, frame arithmetic, defaults
 ├── pipeline.py       # VideoPipeline: load backend, generate -> [PIL frames]
+├── chain.py          # long-clip chaining: prompt series + last-frame carry-over
 ├── encode.py         # frames -> H.264 MP4 (imageio-ffmpeg)
 ├── metadata.py       # MP4 comment tag + <name>.json sidecar
 ├── variables.py      # VideoVarSpec (adds template_input)

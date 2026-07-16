@@ -198,3 +198,73 @@ def test_run_stop_status_exits_immediately(tmp_path, monkeypatch):
 
     made = run(spec_path, poll=0.01)
     assert made == 1  # one image, then reload sees stop and exits
+
+
+# --------------------------------------------------------------------------- #
+# Resilient hot reload: a bad edit is reported and the previous config is kept.
+# --------------------------------------------------------------------------- #
+def test_run_keeps_previous_spec_on_unreadable_yaml(tmp_path, monkeypatch):
+    """A syntactically broken YAML on reload must not crash: keep old spec."""
+    out_dir = tmp_path / "out"
+    spec_path = tmp_path / "spec.yaml"
+    # loop=2 so that, keeping the OLD spec, the loop still terminates on its own.
+    spec_path.write_text(_spec_yaml_with_color(out_dir, loop=2), encoding="utf-8")
+
+    fake = _FakePipeline()
+    monkeypatch.setattr(runner, "_build_pipeline", lambda spec, ov, echo: (fake, [], None))
+
+    original_save = runner.save_image_with_metadata
+    corrupted = {"done": False}
+
+    def _save_then_break(image, path, metadata, quality=95):
+        if not corrupted["done"]:
+            # Tabs + dangling colon => yaml.YAMLError (not ValueError/OSError).
+            spec_path.write_text("status: live\n\tbad: : :\n", encoding="utf-8")
+            corrupted["done"] = True
+        return original_save(image, path, metadata, quality)
+
+    monkeypatch.setattr(runner, "save_image_with_metadata", _save_then_break)
+
+    logs: list[str] = []
+    made = run(spec_path, poll=0.01, echo=logs.append)
+
+    assert made == 2  # old spec (loop=2) preserved, no crash
+    assert fake.calls == 2
+    assert any("keeping previous configuration" in m for m in logs)
+
+
+def test_run_keeps_previous_pipeline_on_bad_model(tmp_path, monkeypatch):
+    """A reload whose model breaks the pipeline rebuild keeps the old pipeline."""
+    out_dir = tmp_path / "out"
+    spec_path = tmp_path / "spec.yaml"
+    spec_path.write_text(_spec_yaml_with_color(out_dir, loop=2), encoding="utf-8")
+
+    fake = _FakePipeline()
+
+    def _build(spec, ov, echo):
+        if runner._require_model(spec, ov) == "bad.safetensors":
+            raise RuntimeError("model file not found: bad.safetensors")
+        return fake, [], None
+
+    monkeypatch.setattr(runner, "_build_pipeline", _build)
+
+    original_save = runner.save_image_with_metadata
+    switched = {"done": False}
+
+    def _save_then_bad_model(image, path, metadata, quality=95):
+        if not switched["done"]:
+            new = _spec_yaml_with_color(out_dir, loop=2).replace(
+                '"fake.safetensors"', '"bad.safetensors"'
+            )
+            spec_path.write_text(new, encoding="utf-8")
+            switched["done"] = True
+        return original_save(image, path, metadata, quality)
+
+    monkeypatch.setattr(runner, "save_image_with_metadata", _save_then_bad_model)
+
+    logs: list[str] = []
+    made = run(spec_path, poll=0.01, echo=logs.append)
+
+    assert made == 2  # old pipeline (fake) kept, loop finishes
+    assert fake.calls == 2
+    assert any("keeping previous configuration" in m for m in logs)
