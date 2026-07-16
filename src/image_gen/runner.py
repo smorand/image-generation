@@ -203,23 +203,30 @@ def run(
 
     made = 0
     while True:
-        # Hot reload if the file changed on disk.
+        # Hot reload if the file changed on disk. Any failure (unreadable YAML,
+        # invalid value, or a pipeline rebuild that blows up on a bad model /
+        # scheduler) is caught: we report it and keep the previous configuration
+        # running unchanged. Consume the edit (mtime) either way so a broken file
+        # is retried only after the next save, not on every poll.
         current_mtime = config_path.stat().st_mtime
         if current_mtime != mtime:
+            mtime = current_mtime
             try:
                 new_spec = load_spec(config_path)
-            except (ValueError, OSError) as exc:
-                echo(f"Reload failed, keeping previous spec: {exc}")
-                mtime = current_mtime
-            else:
                 new_sig = _pipeline_signature(new_spec, overrides)
                 if new_sig != pipeline_sig:
                     echo("Pipeline settings changed, rebuilding...")
-                    pipeline, ref_images, ip_scale = _build_pipeline(new_spec, overrides, echo)
+                    # Build into temporaries first: if this raises we keep the
+                    # old pipeline AND old spec, so config stays fully coherent.
+                    new_pipeline, new_ref_images, new_ip_scale = _build_pipeline(
+                        new_spec, overrides, echo
+                    )
+                    pipeline, ref_images, ip_scale = new_pipeline, new_ref_images, new_ip_scale
                     pipeline_sig = new_sig
                 spec = new_spec
-                mtime = current_mtime
                 echo(f"Reloaded spec (status={spec.status}, loop={spec.loop})")
+            except Exception as exc:  # noqa: BLE001 - keep the loop alive on any bad edit
+                echo(f"Reload failed, keeping previous configuration unchanged: {exc}")
 
         if spec.status == "stop":
             echo("status=stop, exiting.")

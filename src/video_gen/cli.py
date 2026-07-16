@@ -151,6 +151,164 @@ def generate(
     typer.echo(f"Saved: {saved}  ({gen_s:.0f}s, {gen_s / dur:.0f}s per output-second)")
 
 
+@app.command()
+def chain(
+    image: Annotated[
+        Path,
+        typer.Option("--image", "-i", help="Source image to animate", exists=True, dir_okay=False),
+    ],
+    prompt: Annotated[
+        list[str],
+        typer.Option("--prompt", "-p", help="Segment prompt (repeat -p once per segment)"),
+    ],
+    segments: Annotated[
+        Optional[int],
+        typer.Option(
+            "--segments",
+            help="Number of segments (default: one per -p). If > prompts given, the last prompt is reused.",
+            min=1,
+        ),
+    ] = None,
+    backend: Annotated[
+        str, typer.Option("--backend", "-b", help=f"Backend: {', '.join(BACKENDS)}")
+    ] = DEFAULT_BACKEND,
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output .mp4 path")] = Path("./out/chain.mp4"),
+    negative_prompt: Annotated[
+        Optional[str], typer.Option("--negative-prompt", "-n", help="Negative prompt")
+    ] = None,
+    seg_duration: Annotated[
+        float,
+        typer.Option("--seg-duration", "-d", help="Length of EACH segment in seconds", min=0.5, max=6.0),
+    ] = 3.0,
+    fps: Annotated[Optional[int], typer.Option("--fps", min=6, max=30)] = None,
+    width: Annotated[Optional[int], typer.Option("--width", "-W", min=128, max=1280)] = None,
+    height: Annotated[Optional[int], typer.Option("--height", "-H", min=128, max=1280)] = None,
+    steps: Annotated[Optional[int], typer.Option("--steps", "-s", min=1, max=100)] = None,
+    guidance: Annotated[Optional[float], typer.Option("--guidance", "-g", min=1.0, max=15.0)] = None,
+    seed: Annotated[Optional[int], typer.Option("--seed", help="Base seed (segment i uses seed+i)")] = None,
+    model: Annotated[Optional[str], typer.Option("--model", "-m", help="Override backend HF repo/path")] = None,
+    offload: Annotated[bool, typer.Option("--offload/--no-offload")] = False,
+    precision: Annotated[
+        Optional[str], typer.Option("--precision", help="fp16 | bf16 | fp32 (default: bf16 on GPU)")
+    ] = None,
+) -> None:
+    """Generate a long clip as a chain of short, prompt-driven segments.
+
+    Each segment is a short image-to-video clip seeded by the LAST frame of the
+    previous one, so peak memory stays flat regardless of total length. This is
+    the way to go past the backend's native ceiling on Apple Silicon (a single
+    long clip OOMs Metal). Give one -p per segment to make the action evolve:
+
+      video-gen chain -i seeds/girl.png \\
+        -p "she turns her head slowly" \\
+        -p "she smiles and looks up" \\
+        -p "a breeze moves her hair" -d 3
+    """
+    import time
+
+    from .chain import build_prompt_series, generate_chain
+    from .encode import encode_frames
+    from .metadata import VideoMetadata, write_sidecar
+    from .pipeline import VideoGenConfig, VideoPipeline, load_source_image
+
+    if backend not in BACKENDS:
+        typer.echo(f"Error: unknown backend '{backend}'. Supported: {', '.join(BACKENDS)}", err=True)
+        raise typer.Exit(1)
+    if precision is not None and precision not in PRECISIONS:
+        typer.echo(f"Error: unknown precision '{precision}'. Use fp16 | bf16 | fp32.", err=True)
+        raise typer.Exit(1)
+    if not prompt:
+        typer.echo("Error: at least one --prompt/-p is required.", err=True)
+        raise typer.Exit(1)
+
+    try:
+        prompt_series = build_prompt_series(prompt, segments)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    spec = get_backend(backend)
+    eff_fps = fps if fps is not None else spec.native_fps
+    seg_frames = resolve_frames(spec, seg_duration, eff_fps)
+    eff_width = width if width is not None else spec.default_width
+    eff_height = height if height is not None else spec.default_height
+    eff_steps = steps if steps is not None else spec.default_steps
+    eff_guidance = guidance if guidance is not None else spec.default_guidance
+    eff_negative = negative_prompt if negative_prompt else DEFAULT_NEGATIVE_PROMPT
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
+
+    n = len(prompt_series)
+    # Stitched length drops one duplicated seam frame per extra segment.
+    total_frames = seg_frames + (n - 1) * (seg_frames - 1)
+    total_dur = frames_to_duration(total_frames, eff_fps)
+    seg_dur = frames_to_duration(seg_frames, eff_fps)
+
+    typer.echo(f"Backend: {backend} ({spec.description})")
+    typer.echo(f"Loading pipeline{' (offload)' if offload else ''}...")
+    pipe = VideoPipeline(backend=backend, repo_override=model, offload=offload, precision=precision)
+    pipe.load()
+
+    typer.echo(
+        f"Chaining {n} segment(s) x {seg_dur}s ({seg_frames} frames each) "
+        f"-> {total_dur}s total ({total_frames} frames @ {eff_fps} fps), "
+        f"{eff_width}x{eff_height}, {eff_steps} steps, base seed {seed}"
+    )
+    typer.echo(f"  device={pipe.device} dtype={pipe.dtype}")
+
+    def _generate_segment(seg_prompt: str, seg_image, seg_seed: int):
+        config = VideoGenConfig(
+            prompt=seg_prompt,
+            image=seg_image,
+            negative_prompt=eff_negative,
+            width=eff_width,
+            height=eff_height,
+            num_frames=seg_frames,
+            steps=eff_steps,
+            guidance=eff_guidance,
+            seed=seg_seed,
+        )
+        return pipe.generate(config)
+
+    def _on_segment(i: int, total: int, seg_prompt: str, seg_seed: int) -> None:
+        typer.echo(
+            f"  [seg {i + 1}/{total}] seed={seg_seed} "
+            f"{seg_prompt[:70]}{'...' if len(seg_prompt) > 70 else ''}"
+        )
+
+    t0 = time.time()
+    frames = generate_chain(
+        _generate_segment,
+        prompt_series,
+        load_source_image(image),
+        base_seed=seed,
+        on_segment=_on_segment,
+        free_memory=pipe.empty_cache,
+    )
+    gen_s = time.time() - t0
+
+    metadata = VideoMetadata(
+        prompt=" | ".join(prompt_series),
+        negative_prompt=eff_negative,
+        backend=backend,
+        model=pipe.repo,
+        source_image=str(image),
+        seed=seed,
+        width=eff_width,
+        height=eff_height,
+        num_frames=total_frames,
+        fps=eff_fps,
+        duration_s=total_dur,
+        steps=eff_steps,
+        guidance=eff_guidance,
+        segments=n,
+        prompt_series=prompt_series,
+    )
+    saved = encode_frames(frames, output, fps=eff_fps, comment=metadata.to_json())
+    write_sidecar(saved, metadata)
+    typer.echo(f"Saved: {saved}  ({gen_s:.0f}s, {gen_s / total_dur:.0f}s per output-second)")
+
+
 @app.command(name="generate-var")
 def generate_var(
     config: Annotated[
@@ -242,7 +400,8 @@ def info() -> None:
         )
     typer.echo("\nMac notes:")
     typer.echo("  - bfloat16 only (Metal has no FP8). Clips are minutes, not seconds.")
-    typer.echo("  - Longer than the native max = chain segments (concat after).")
+    typer.echo("  - Longer than the native max = use `video-gen chain` (one -p per segment).")
+    typer.echo("    A single long clip OOMs Metal; chaining keeps peak memory flat.")
     typer.echo("  - Use --offload if you hit memory pressure with Wan.")
     typer.echo(f"\nDefault negative prompt:\n  {DEFAULT_NEGATIVE_PROMPT}")
 

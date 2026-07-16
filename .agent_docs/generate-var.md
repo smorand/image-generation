@@ -111,8 +111,21 @@ The config file's mtime is checked every `--poll` seconds (default 5, and
 between every image). On change the whole spec reloads live. If a
 pipeline-affecting key changed (`model`, `vae`, `scheduler`, `clip_skip`,
 `lora`, `embedding`, `ip_adapter*`), the pipeline is rebuilt; otherwise only the
-prompt/variables/loop/status/output are swapped. A reload that fails to parse is
-logged and ignored (the previous spec keeps running).
+prompt/variables/loop/status/output are swapped.
+
+**Resilient reload:** any bad edit is caught, logged
+(`Reload failed, keeping previous configuration unchanged: ...`), and the loop
+keeps running with the **previous** config unchanged. This covers all three
+failure modes:
+- unreadable YAML (`yaml.YAMLError`: bad indentation, stray tab, dangling colon),
+- an invalid value that fails validation (bad `status`, undefined placeholder…),
+- a pipeline-affecting change that blows up the rebuild (a `model` path that does
+  not exist, an unknown `scheduler`, a missing LoRA/embedding).
+
+The rebuild is atomic: on failure both the pipeline **and** the spec are kept as
+they were, so config never ends up half-applied. A broken file is retried only
+after the next save (its mtime is consumed), not on every poll. Fix the file and
+save again to resume.
 
 ## Output and metadata
 

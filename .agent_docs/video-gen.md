@@ -27,11 +27,12 @@ fps, dim multiple (32), and Mac-friendly defaults.
 src/video_gen/
 ├── backends.py    # BackendSpec registry, resolve_frames(duration -> frame count)
 ├── pipeline.py    # VideoPipeline: load per backend, prepare_image, generate -> [PIL frames]
+├── chain.py       # long-clip chaining: prompt series, stitch_segments, generate_chain
 ├── encode.py      # encode_frames -> H.264 MP4 via imageio-ffmpeg, comment tag
 ├── metadata.py    # VideoMetadata: MP4 comment tag + <name>.json sidecar
 ├── variables.py   # VideoVarSpec, reuses image_gen.variables engine + template_input
 ├── runner.py      # generate-var loop: hot-reload, counter, manifest_video.jsonl
-└── cli.py         # video-gen: generate, generate-var, info
+└── cli.py         # video-gen: generate, chain, generate-var, info
 ```
 
 The variable resolution engine is imported wholesale from
@@ -43,6 +44,10 @@ The variable resolution engine is imported wholesale from
 ```bash
 # Single clip
 video-gen generate -i seeds/cat.png -p "kitten blinking, slow zoom" -b ltx -d 3 -o out/cat.mp4
+
+# Long clip: chain short segments, one -p per segment (see "Long clips" below)
+video-gen chain -i seeds/cat.png \
+  -p "kitten blinking" -p "kitten looks left" -p "kitten yawns" -d 3 -o out/cat_long.mp4
 
 # Backends + defaults
 video-gen info
@@ -68,9 +73,44 @@ counter scan matches `.mp4`.
 
 `--duration` is snapped to a valid count for the backend:
 `num_frames = frame_multiple * round((duration*fps - 1)/frame_multiple) + 1`,
-clamped to `max_frames`. Pass `--num-frames` to set it explicitly. A clip longer
-than the backend's native max is not one generation: generate segments and
-concat them (last frame -> next source image).
+clamped to `max_frames`. Pass `--num-frames` to set it explicitly.
+
+## Long clips: chaining (`video-gen chain`)
+
+A single generation denoises the **whole clip in one latent tensor**, so peak
+memory grows with the frame count. On a 32 GB Mac an LTX `-d 10` (241 frames)
+tries to allocate a ~27 GB Metal buffer and dies with:
+`failed assertion Failed to allocate private MTLBuffer for size 26791142400`.
+There is no automatic fallback to a shorter clip; it allocates or it crashes.
+
+`video-gen chain` gets past the native ceiling by generating a **series of short
+segments**: each segment is a normal i2v clip **seeded by the last frame of the
+previous one**, and each gets its own prompt so the action can evolve. Segments
+are concatenated into one MP4 (the duplicated seam frame is dropped). Because
+each segment is small, **peak memory stays flat** regardless of total length.
+
+```bash
+video-gen chain -i seeds/girl.png \
+  -p "she turns her head slowly" \
+  -p "she smiles and looks up" \
+  -p "a breeze moves her hair" \
+  --seg-duration 3 -o out/long.mp4
+```
+
+- `-p` is repeatable: one prompt per segment. `--segments N` overrides the count
+  (pads by repeating the last prompt, or truncates). `--seg-duration/-d` is the
+  length of **each** segment (default 3 s, capped at 6 s to stay within memory).
+- Seeds: segment `i` uses `base_seed + i` (reproducible, varied).
+- Total length ~= `segments * seg_duration`. Metadata records `segments` and the
+  full `prompt_series`.
+- **Seam limitation (inherent to image-conditioned i2v):** the model sees only
+  one frame between segments, so motion *velocity* resets at each seam and a
+  slight hitch is possible. Keep segments a few seconds long to minimise it.
+  For `generate-var` continuous batches, each clip is still a single generation.
+
+Core logic is model-free and unit-tested in `chain.py` (`build_prompt_series`,
+`stitch_segments`, `generate_chain`); the CLI wires the pipeline in and frees the
+MPS cache (`VideoPipeline.empty_cache`) between segments.
 
 ## Mac performance (measured, M5 32 GB)
 

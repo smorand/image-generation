@@ -146,14 +146,23 @@ class VideoPipeline:
             raise RuntimeError("pipeline not loaded; call load() first")
         return self._pipe
 
-    def unload(self) -> None:
-        """Release the pipeline and free device memory (for backend switches)."""
-        self._pipe = None
+    def empty_cache(self) -> None:
+        """Free transient activation memory, keeping the weights resident.
+
+        Called between chained segments: the big per-clip latent/attention
+        buffers are released so the next segment starts from a clean allocation,
+        while the loaded pipeline stays on the device (no reload cost).
+        """
         gc.collect()
         if self.device == "mps":
             torch.mps.empty_cache()
         elif self.device == "cuda":
             torch.cuda.empty_cache()
+
+    def unload(self) -> None:
+        """Release the pipeline and free device memory (for backend switches)."""
+        self._pipe = None
+        self.empty_cache()
 
     # ------------------------------------------------------------------ #
     # Generation

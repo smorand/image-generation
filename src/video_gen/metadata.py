@@ -32,6 +32,9 @@ class VideoMetadata:
     guidance: float
     # Resolved generate-var placeholders: {variable_name: chosen_value}.
     variables: dict[str, str] | None = None
+    # Chained generation: number of segments and the per-segment prompt series.
+    segments: int | None = None
+    prompt_series: list[str] | None = None
 
     def to_json(self) -> str:
         """Single-line JSON string (kept one line, like image-gen metadata)."""
