@@ -39,7 +39,11 @@ build/
 .vscode/
 *.swp
 *.swo
+.jukit/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
