@@ -48,7 +48,9 @@ class VarSpec:
     variables: dict[str, list[Option]]
     negative_prompt: str | None = None
     loop: int = 0
+    count: int = 1
     status: str = "live"
+    log_dir: str | None = None
     defaults: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -117,11 +119,16 @@ def load_spec(path: str | Path) -> VarSpec:
     if loop < 0:
         raise ValueError(f"{path}: loop must be >= 0, got {loop}")
 
+    count = int(raw.get("count", 1))
+    if count < 1:
+        raise ValueError(f"{path}: count must be >= 1, got {count}")
+
     defaults = raw.get("defaults", {}) or {}
     if not isinstance(defaults, dict):
         raise ValueError(f"{path}: 'defaults' must be a mapping")
 
     negative = raw.get("negative_prompt")
+    log_dir = raw.get("log_dir")
 
     return VarSpec(
         template_prompt=str(raw["template_prompt"]),
@@ -129,7 +136,9 @@ def load_spec(path: str | Path) -> VarSpec:
         variables=_parse_variables(raw["variables"]),
         negative_prompt=str(negative) if negative is not None else None,
         loop=loop,
+        count=count,
         status=status,
+        log_dir=str(log_dir) if log_dir is not None else None,
         defaults=defaults,
     )
 
@@ -145,6 +154,11 @@ def validate_spec(spec: VarSpec) -> None:
     for name in PLACEHOLDER_RE.findall(spec.template_prompt):
         if name not in top_names:
             errors.append(f"template_prompt references undefined <{name}>")
+
+    if spec.negative_prompt is not None:
+        for name in PLACEHOLDER_RE.findall(spec.negative_prompt):
+            if name not in top_names:
+                errors.append(f"negative_prompt references undefined <{name}>")
 
     for name in PLACEHOLDER_RE.findall(spec.template_output):
         if name not in OUTPUT_BUILTINS:
@@ -237,16 +251,25 @@ def clean_prompt(text: str) -> str:
     return text.strip()
 
 
-def resolve_prompt(spec: VarSpec, rng: random.Random) -> tuple[str, dict[str, str]]:
-    """Resolve the prompt template once.
+def resolve_prompt(
+    spec: VarSpec, rng: random.Random
+) -> tuple[str, str | None, dict[str, str]]:
+    """Resolve the prompt and negative prompt templates once.
 
-    Returns the cleaned prompt and the map of variable name -> chosen value.
-    A variable is drawn once and reused wherever it appears again.
+    Returns the cleaned prompt, the cleaned negative prompt (or None when the
+    spec defines none), and the map of variable name -> chosen value. A variable
+    is drawn once and reused wherever it appears again, including across the
+    prompt and the negative prompt (they share one draw per variable).
     """
     memo: dict[str, str] = {}
     chosen: dict[str, str] = {}
     raw = _resolve(spec.template_prompt, spec.variables, rng, memo, chosen)
-    return clean_prompt(raw), chosen
+    prompt = clean_prompt(raw)
+    negative: str | None = None
+    if spec.negative_prompt is not None:
+        raw_neg = _resolve(spec.negative_prompt, spec.variables, rng, memo, chosen)
+        negative = clean_prompt(raw_neg)
+    return prompt, negative, chosen
 
 
 def render_output(template: str, number: int, seed: int) -> str:

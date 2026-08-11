@@ -22,6 +22,7 @@ logging.getLogger("compel").setLevel(logging.ERROR)
 import typer
 
 from .ip_adapter import SUPPORTED_IP_ADAPTERS, load_reference_images
+from .logging_jsonl import append_generation_log
 from .metadata import GenerationMetadata, save_image_with_metadata
 from .pipeline import DEFAULT_NEGATIVE_PROMPT, GenerationConfig, SDXLPipeline
 from .schedulers import SUPPORTED_SCHEDULERS
@@ -226,6 +227,14 @@ def generate(
             max=1.0,
         ),
     ] = 0.5,
+    log_dir: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--log-dir",
+            help="Directory for the JSONL generation log (one line per image, "
+            "daily-rotated). Omit to disable logging.",
+        ),
+    ] = None,
 ) -> None:
     """Generate images using SDXL safetensors model."""
     # Validate scheduler
@@ -339,6 +348,9 @@ def generate(
     if batch_size == 1:
         saved = save_image_with_metadata(images[0], output_path, metadata)
         typer.echo(f"Saved: {saved}")
+        log_path = append_generation_log(log_dir, metadata, saved, command="generate")
+        if log_path is not None:
+            typer.echo(f"Logged: {log_path}")
     else:
         # Save multiple images with numbered suffixes
         stem = output_path.stem
@@ -349,6 +361,9 @@ def generate(
             path = parent / f"{stem}_{i:02d}{suffix}"
             saved = save_image_with_metadata(img, path, metadata)
             typer.echo(f"Saved: {saved}")
+            log_path = append_generation_log(log_dir, metadata, saved, command="generate")
+            if log_path is not None:
+                typer.echo(f"Logged: {log_path}")
 
     typer.echo("Done!")
 
@@ -430,6 +445,15 @@ def generate_var(
         Optional[Path],
         typer.Option("--vae", help="Override defaults.vae", exists=True, dir_okay=False),
     ] = None,
+    log_dir: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--log-dir",
+            help="Override log_dir: directory for the JSONL generation log "
+            "(one line per image, daily-rotated). Defaults to the spec's log_dir, "
+            "else the output directory.",
+        ),
+    ] = None,
 ) -> None:
     """Run continuous, variable-driven generation from a YAML spec.
 
@@ -473,6 +497,7 @@ def generate_var(
         "clip_skip": clip_skip,
         "lora": lora if lora else None,
         "vae": str(vae) if vae else None,
+        "log_dir": str(log_dir) if log_dir else None,
     }
 
     try:

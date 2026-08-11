@@ -43,7 +43,9 @@ Generate images using SDXL safetensors model.
 Continuous, variable-driven generation from a YAML spec. The spec defines a
 prompt template with `<placeholder>` slots and a tree of weighted, recursive
 variables. Each loop iteration draws one value per variable, cleans the prompt,
-generates one image, and saves it under a zero-padded counter. The spec is
+generates one image, and saves it under a zero-padded counter. The same
+`<placeholder>` slots also work in `negative_prompt` (resolved with the same
+per-variable draw as the positive prompt). The spec is
 hot-reloadable: edit it while the loop runs to change prompts, variables, the
 loop count, or the run status.
 
@@ -76,6 +78,7 @@ image-gen info
 | `--model`, `-m` | required | Path to safetensors SDXL checkpoint |
 | `--output`, `-o` | `./output.png` | Output image path |
 | `--vae` | bundled | Path to custom VAE safetensors |
+| `--log-dir` | disabled | Directory for a JSONL log of every generated image (one line per image, daily-rotated `generations-YYYY-MM-DD.jsonl`, full params + variables). Omit to disable. |
 
 ### Prompt
 

@@ -12,11 +12,11 @@ import json
 import random
 import re
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from .ip_adapter import load_reference_images
+from .logging_jsonl import append_generation_log
 from .metadata import GenerationMetadata, save_image_with_metadata
 from .pipeline import DEFAULT_NEGATIVE_PROMPT, GenerationConfig, SDXLPipeline
 from .variables import NUMBER_WIDTH, VarSpec, load_spec, render_output, resolve_prompt
@@ -149,12 +149,6 @@ def _build_pipeline(spec: VarSpec, overrides: dict[str, Any], echo: Echo):
 # --------------------------------------------------------------------------- #
 # Manifest
 # --------------------------------------------------------------------------- #
-def _append_manifest(path: Path, record: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
 # --------------------------------------------------------------------------- #
 # Dry run
 # --------------------------------------------------------------------------- #
@@ -162,10 +156,12 @@ def dry_run(spec: VarSpec, rng: random.Random, samples: int, echo: Echo) -> None
     """Print resolved prompts without loading the model."""
     start = scan_start_number(spec.template_output)
     for i in range(samples):
-        prompt, chosen = resolve_prompt(spec, rng)
+        prompt, neg_preview, chosen = resolve_prompt(spec, rng)
         out = render_output(spec.template_output, start + i, seed=0)
         echo(f"[{start + i:0{NUMBER_WIDTH}d}] -> {out}")
         echo(f"  prompt: {prompt}")
+        if neg_preview:
+            echo(f"  neg:    {neg_preview}")
         echo(f"  vars:   {json.dumps(chosen, ensure_ascii=False)}")
 
 
@@ -199,7 +195,17 @@ def run(
     pipeline, ref_images, ip_scale = _build_pipeline(spec, overrides, echo)
     pipeline_sig = _pipeline_signature(spec, overrides)
 
-    manifest_path = Path(render_output(spec.template_output, 0, 0)).parent / "manifest.jsonl"
+    # Resolve the JSONL log directory: CLI override wins, else spec 'log_dir', else
+    # spec defaults['log_dir'], else the output directory. Every generated image
+    # appends one full record to a daily-rotated file there.
+    def _resolve_log_dir(active_spec: VarSpec) -> Path:
+        override = overrides.get("log_dir")
+        if override:
+            return Path(override)
+        raw = getattr(active_spec, "log_dir", None) or active_spec.defaults.get("log_dir")
+        if raw:
+            return Path(str(raw))
+        return Path(render_output(active_spec.template_output, 0, 0)).parent
 
     made = 0
     while True:
@@ -241,10 +247,8 @@ def run(
             echo(f"Reached loop={spec.loop}, exiting.")
             break
 
-        prompt, chosen = resolve_prompt(spec, var_rng)
-        seed = seed_rng.randint(0, 2**32 - 1)
-        out_path = Path(render_output(spec.template_output, number, seed))
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt, negative_resolved, chosen = resolve_prompt(spec, var_rng)
+        count = int(_param(spec, overrides, "count", spec.count))
 
         steps = int(_param(spec, overrides, "steps", 30))
         cfg_scale = float(_param(spec, overrides, "cfg_scale", 4.0))
@@ -253,76 +257,81 @@ def run(
         clip_skip = int(_param(spec, overrides, "clip_skip", 2))
         negative = (
             _param(spec, overrides, "negative_prompt", None)
+            or negative_resolved
             or spec.negative_prompt
             or DEFAULT_NEGATIVE_PROMPT
         )
         hires_fix = bool(_param(spec, overrides, "hires_fix", False))
-
-        echo(f"[{number:0{NUMBER_WIDTH}d}] seed={seed} {prompt[:70]}{'...' if len(prompt) > 70 else ''}")
-
-        config = GenerationConfig(
-            prompt=prompt,
-            negative_prompt=negative,
-            width=width,
-            height=height,
-            steps=steps,
-            cfg_scale=cfg_scale,
-            seed=seed,
-            clip_skip=clip_skip,
-            batch_size=1,
-            hires_fix=hires_fix,
-            hires_scale=float(_param(spec, overrides, "hires_scale", 1.5)),
-            hires_steps=int(_param(spec, overrides, "hires_steps", 15)),
-            hires_denoising=float(_param(spec, overrides, "hires_denoising", 0.5)),
-            ip_adapter_images=ref_images,
-        )
-
-        images = pipeline.generate(config)
-
         ip_adapter_image = _param(spec, overrides, "ip_adapter_image", None)
-        metadata = GenerationMetadata(
-            prompt=prompt,
-            negative_prompt=negative,
-            model=str(_require_model(spec, overrides)),
-            vae=(str(_param(spec, overrides, "vae", None)) if _param(spec, overrides, "vae", None) else None),
-            seed=seed,
-            width=width,
-            height=height,
-            steps=steps,
-            cfg_scale=cfg_scale,
-            scheduler=str(_param(spec, overrides, "scheduler", "euler_a")),
-            clip_skip=clip_skip,
-            lora=list(_param(spec, overrides, "lora", None)) if _param(spec, overrides, "lora", None) else None,
-            embedding=(
-                list(_param(spec, overrides, "embedding", None))
-                if _param(spec, overrides, "embedding", None)
-                else None
-            ),
-            hires_fix=hires_fix,
-            hires_scale=float(_param(spec, overrides, "hires_scale", 1.5)) if hires_fix else None,
-            hires_steps=int(_param(spec, overrides, "hires_steps", 15)) if hires_fix else None,
-            hires_denoising=float(_param(spec, overrides, "hires_denoising", 0.5)) if hires_fix else None,
-            ip_adapter=str(_param(spec, overrides, "ip_adapter", "face")) if ip_adapter_image else None,
-            ip_adapter_images=list(ip_adapter_image) if ip_adapter_image else None,
-            ip_adapter_scale=ip_scale,
-            variables=chosen,
-        )
 
-        saved = save_image_with_metadata(images[0], out_path, metadata)
-        _append_manifest(
-            manifest_path,
-            {
-                "number": f"{number:0{NUMBER_WIDTH}d}",
-                "output": str(saved),
-                "seed": seed,
-                "prompt": prompt,
-                "variables": chosen,
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-            },
-        )
-        echo(f"  saved: {saved}")
+        echo(f"[{number:0{NUMBER_WIDTH}d}] prompt ({count}x): {prompt[:70]}{'...' if len(prompt) > 70 else ''}")
 
-        number += 1
+        for _ in range(count):
+            seed = seed_rng.randint(0, 2**32 - 1)
+            out_path = Path(render_output(spec.template_output, number, seed))
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            config = GenerationConfig(
+                prompt=prompt,
+                negative_prompt=negative,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+                clip_skip=clip_skip,
+                batch_size=1,
+                hires_fix=hires_fix,
+                hires_scale=float(_param(spec, overrides, "hires_scale", 1.5)),
+                hires_steps=int(_param(spec, overrides, "hires_steps", 15)),
+                hires_denoising=float(_param(spec, overrides, "hires_denoising", 0.5)),
+                ip_adapter_images=ref_images,
+            )
+
+            images = pipeline.generate(config)
+
+            metadata = GenerationMetadata(
+                prompt=prompt,
+                negative_prompt=negative,
+                model=str(_require_model(spec, overrides)),
+                vae=(str(_param(spec, overrides, "vae", None)) if _param(spec, overrides, "vae", None) else None),
+                seed=seed,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                scheduler=str(_param(spec, overrides, "scheduler", "euler_a")),
+                clip_skip=clip_skip,
+                lora=list(_param(spec, overrides, "lora", None)) if _param(spec, overrides, "lora", None) else None,
+                embedding=(
+                    list(_param(spec, overrides, "embedding", None))
+                    if _param(spec, overrides, "embedding", None)
+                    else None
+                ),
+                hires_fix=hires_fix,
+                hires_scale=float(_param(spec, overrides, "hires_scale", 1.5)) if hires_fix else None,
+                hires_steps=int(_param(spec, overrides, "hires_steps", 15)) if hires_fix else None,
+                hires_denoising=float(_param(spec, overrides, "hires_denoising", 0.5)) if hires_fix else None,
+                ip_adapter=str(_param(spec, overrides, "ip_adapter", "face")) if ip_adapter_image else None,
+                ip_adapter_images=list(ip_adapter_image) if ip_adapter_image else None,
+                ip_adapter_scale=ip_scale,
+                variables=chosen,
+            )
+
+            saved = save_image_with_metadata(images[0], out_path, metadata)
+            log_path = append_generation_log(
+                _resolve_log_dir(spec),
+                metadata,
+                saved,
+                command="generate-var",
+                number=f"{number:0{NUMBER_WIDTH}d}",
+            )
+            echo(f"  saved: {saved}")
+            if log_path is not None:
+                echo(f"  logged: {log_path}")
+
+            number += 1
+
         made += 1
 
     return made

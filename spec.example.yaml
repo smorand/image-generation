@@ -3,6 +3,7 @@
 # Edit this file while it runs: prompts, variables, loop and status reload live.
 status: live # live | pause | stop (forced to "live" on startup)
 loop: 0 # 0 = infinite, N > 0 = stop after N images
+# log_dir: ./logs # optional: daily JSONL log of every generated image (defaults to output dir)
 template_output: "out/cat_<number>.png" # <number> = 10-digit counter, <seed> also available
 template_prompt: "<breed> cat, <age>, <pose>, <setting>, <light>, highly detailed, sharp focus, ultra-realistic, photography"
 negative_prompt: "blurry, low quality, deformed, extra limbs, watermark"

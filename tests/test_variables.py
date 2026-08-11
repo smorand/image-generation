@@ -58,7 +58,7 @@ def test_load_spec_parses_header(tmp_path):
 def test_resolve_produces_valid_prompt(tmp_path):
     spec = load_spec(_write(tmp_path, SPEC_YAML))
     rng = random.Random(0)
-    prompt, chosen = resolve_prompt(spec, rng)
+    prompt, _neg, chosen = resolve_prompt(spec, rng)
     assert prompt.startswith("solo, inuit girl,")
     assert "  " not in prompt  # no double spaces
     assert ", ," not in prompt  # no double commas
@@ -72,7 +72,7 @@ def test_empty_option_is_cleaned(tmp_path):
     rng = random.Random(1)
     saw_empty_color = False
     for _ in range(200):
-        prompt, chosen = resolve_prompt(spec, rng)
+        prompt, _neg, chosen = resolve_prompt(spec, rng)
         if chosen.get("color") == "":
             saw_empty_color = True
             assert "tank top" in prompt
@@ -86,7 +86,7 @@ def test_weights_bias_selection(tmp_path):
     rng = random.Random(42)
     empty = colored = 0
     for _ in range(2000):
-        _, chosen = resolve_prompt(spec, rng)
+        _, _neg, chosen = resolve_prompt(spec, rng)
         if "color" in chosen:
             if chosen["color"] == "":
                 empty += 1
@@ -100,12 +100,69 @@ def test_recursive_subvariables(tmp_path):
     spec = load_spec(_write(tmp_path, SPEC_YAML))
     rng = random.Random(7)
     for _ in range(100):
-        prompt, chosen = resolve_prompt(spec, rng)
+        prompt, _neg, chosen = resolve_prompt(spec, rng)
         if "top" in chosen:
             # recursive: clothes -> top(<color> tank top) -> color
             assert "tank top" in chosen["top"]
             assert "with" in prompt
             assert chosen["bottom"] in {"jeans", "a skirt"}
+
+
+def test_negative_prompt_placeholders_resolved(tmp_path):
+    """Placeholders in negative_prompt are drawn, substituted, and cleaned."""
+    from image_gen.variables import VarSpec, Option
+
+    spec = VarSpec(
+        template_prompt="girl, <sizefix>, end",
+        template_output="o_<number>.png",
+        negative_prompt="bad quality, <massfix>",
+        variables={
+            "sizefix": [Option("(petite:1.3)")],
+            "massfix": [Option("(muscular:1.3), (broad shoulders:1.3)")],
+        },
+    )
+    prompt, negative, chosen = resolve_prompt(spec, random.Random(0))
+    assert prompt == "girl, (petite:1.3), end"
+    assert negative == "bad quality, (muscular:1.3), (broad shoulders:1.3)"
+    assert chosen["massfix"] == "(muscular:1.3), (broad shoulders:1.3)"
+    # An empty negative option must be cleaned (no dangling comma).
+    spec_empty = VarSpec(
+        template_prompt="girl",
+        template_output="o_<number>.png",
+        negative_prompt="bad quality, <massfix>",
+        variables={"massfix": [Option("")]},
+    )
+    _, neg_empty, _ = resolve_prompt(spec_empty, random.Random(0))
+    assert neg_empty == "bad quality"
+
+
+def test_variable_shared_between_prompt_and_negative():
+    """A variable used in both prompt and negative draws once (shared memo)."""
+    from image_gen.variables import VarSpec, Option
+
+    spec = VarSpec(
+        template_prompt="a <col> shirt",
+        template_output="o_<number>.png",
+        negative_prompt="not a <col> shirt",
+        variables={"col": [Option("blue"), Option("red")]},
+    )
+    for seed in range(20):
+        prompt, negative, chosen = resolve_prompt(spec, random.Random(seed))
+        col = chosen["col"]
+        assert prompt == f"a {col} shirt"
+        assert negative == f"not a {col} shirt"
+
+
+def test_negative_unknown_placeholder_rejected():
+    from image_gen.variables import VarSpec, Option
+
+    with pytest.raises(ValueError, match="negative_prompt references undefined <typo>"):
+        VarSpec(
+            template_prompt="a <col> b",
+            template_output="o_<number>.png",
+            negative_prompt="bad, <typo>",
+            variables={"col": [Option("blue")]},
+        )
 
 
 def test_repeated_variable_reused():
@@ -117,7 +174,7 @@ def test_repeated_variable_reused():
         variables={"hair": [Option("black"), Option("blonde")]},
     )
     for seed in range(20):
-        prompt, chosen = resolve_prompt(spec, random.Random(seed))
+        prompt, _neg, chosen = resolve_prompt(spec, random.Random(seed))
         color = chosen["hair"]
         assert prompt == f"{color} and again {color}"
 

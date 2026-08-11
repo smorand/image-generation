@@ -16,6 +16,8 @@ Modules:
 ```yaml
 status: live                 # live | pause | stop  (forced to "live" on startup)
 loop: 0                      # 0 = infinite, N > 0 = stop after N images
+# log_dir: /path/to/logs     # optional; daily JSONL log of every image.
+#                              defaults to the output directory.
 template_output: "out/img_<number>.png"
 template_prompt: "<season> landscape, <biome>, <light>, <weather>, photography"
 negative_prompt: "low quality, deformed"
@@ -60,6 +62,11 @@ variables:
 
 - Prompt slots use `<name>` (chosen over `{{name}}` so values need no YAML
   quoting; `{` starts a YAML flow mapping).
+- `negative_prompt` supports the same `<name>` slots as `template_prompt`. They
+  resolve against the same variable tree and share the same per-variable draw:
+  a variable used in both the prompt and the negative prompt is drawn once and
+  reused in both. Undefined placeholders in `negative_prompt` are rejected at
+  load time too.
 - `template_output` supports two builtins only: `<number>` (10-digit
   zero-padded counter) and `<seed>` (the diffusion seed).
 - Undefined placeholders are rejected at load time (typo protection).
@@ -74,7 +81,9 @@ variables:
 - **Weights** are relative among sibling options (default 1). `{value: "",
   weight: 4}` makes the empty choice 4x more likely than a weight-1 sibling.
 - A named variable is **drawn once per prompt and reused** wherever it appears
-  again. So `<hair> ... <hair>` yields the same value in both spots.
+  again. So `<hair> ... <hair>` yields the same value in both spots (including
+  when one occurrence is in `template_prompt` and the other in
+  `negative_prompt`).
 - After substitution the prompt is cleaned: runs of whitespace collapse, spaces
   before commas drop, repeated commas merge to one, a single space follows each
   comma, and leading/trailing commas are stripped. This absorbs empty slots
@@ -137,8 +146,15 @@ save again to resume.
 - Metadata is embedded as an EXIF **UserComment** (single-line JSON) for both
   `.png` (eXIf chunk) and `.jpg`. It includes all generation params plus a
   `variables` sub-dict mapping each variable name to its chosen value.
-- A `manifest.jsonl` is appended in the output directory: one line per image
-  with `number`, `output`, `seed`, `prompt`, `variables`, `timestamp`.
+- A JSONL generation log is appended, one line per generated image, to
+  `<log_dir>/generations-YYYY-MM-DD.jsonl` (daily rotation). Each line carries a
+  `timestamp`, the `command` ("generate-var"), the `number`, the `output` path,
+  and the **full** metadata (prompt, negative_prompt, all sampling params, and
+  the `variables` sub-dict). Nothing is lost if the image is later moved or
+  deleted, so downstream stats stay exhaustive.
+- `log_dir` resolves in this order: CLI `--log-dir`, then the spec's top-level
+  `log_dir:`, then `defaults.log_dir`, else the output directory. There is no
+  separate `manifest.jsonl` anymore; this log supersedes it.
 
 ### Reading metadata back
 

@@ -154,13 +154,20 @@ def test_run_loop_generates_and_manifests(tmp_path, monkeypatch):
     # status forced to live on startup
     assert "status: live" in spec_path.read_text(encoding="utf-8")
 
-    # manifest has one line per image with the resolved variables
-    lines = (out_dir / "manifest.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    # JSONL log (daily-rotated, defaults to the output dir) has one full record
+    # per image, merging the resolved variables and every sampling parameter.
+    from image_gen.logging_jsonl import log_file_for
+
+    log_path = log_file_for(out_dir)
+    lines = log_path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 3
     rec = json.loads(lines[0])
     assert rec["number"] == "0000000000"
+    assert rec["command"] == "generate-var"
     assert rec["variables"]["eth"] == "inuit"
     assert "prompt" in rec and "seed" in rec
+    # Full params are present now (not just the old manifest subset).
+    assert rec["cfg_scale"] and rec["scheduler"] and rec["steps"]
 
 
 def test_run_counter_continues_after_existing(tmp_path, monkeypatch):
