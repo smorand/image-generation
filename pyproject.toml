@@ -22,6 +22,8 @@ dependencies = [
     "imageio-ffmpeg>=0.5.1",
     "sentencepiece>=0.2.0",
     "ftfy>=6.2.0",
+    # generate-similar --vary (LLM prompt variation, OpenAI-compatible API)
+    "openai>=1.0.0",
 ]
 
 [project.scripts]

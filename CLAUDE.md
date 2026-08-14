@@ -16,6 +16,12 @@ uv sync
 # Generate image
 image-gen generate --model path.safetensors --prompt "text" --output out.png
 
+# Re-generate variations of an existing image (same params, fresh seed each time)
+image-gen generate-similar out.png --count 5 --clip-skip 4
+
+# Same, but with LLM-driven prompt variation per image (see IMAGEGEN_MODEL_* env vars)
+image-gen generate-similar out.png --count 5 --vary "more casual outfit" --keep-seed
+
 # Variable-driven continuous generation (YAML spec, hot-reloadable)
 image-gen generate-var --config spec.yaml --dry-run   # preview prompts
 image-gen generate-var --config spec.yaml             # run the loop
@@ -63,6 +69,14 @@ src/video_gen/        # image-to-video CLI (reuses image_gen.variables engine)
 - **Model cache:** HuggingFace models default to `~/.cache/models/hf` (set in
   `image_gen`/`video_gen` `__init__`, only if `HF_HUB_CACHE`/`HF_HOME` unset).
   Flat local checkpoints live in `~/.cache/models/` and are passed via `--model`.
+- **generate-similar model/VAE resolution:** EXIF metadata stores `model`/`vae`
+  as filenames only (no path). `generate-similar` looks them up by exact
+  filename in `--model-dir` (default `~/.cache/models`, non-recursive); pass
+  `--model`/`--vae` explicitly to bypass the lookup.
+- **generate-similar --vary (LLM):** env vars `IMAGEGEN_MODEL_BASE_URL`,
+  `IMAGEGEN_MODEL_NAME`, `IMAGEGEN_MODEL_API_KEY` (optional, defaults to
+  `not-needed`) configure any OpenAI-compatible endpoint. See
+  `.agent_docs/generate-similar-llm.md`.
 - **Entry point:** `image-gen` command (defined in pyproject.toml)
 - **Pipeline:** `SDXLPipeline` class wraps diffusers `StableDiffusionXLPipeline`
 - **Config:** `GenerationConfig` dataclass holds all generation parameters
@@ -80,3 +94,4 @@ src/video_gen/        # image-to-video CLI (reuses image_gen.variables engine)
 | `.agent_docs/sdxl-pipeline.md` | SDXL pipeline details, optimizations, troubleshooting |
 | `.agent_docs/generate-var.md` | generate-var spec format, control model, metadata |
 | `.agent_docs/video-gen.md` | video-gen backends (Wan/LTX), spec, Mac perf, metadata |
+| `.agent_docs/generate-similar-llm.md` | `generate-similar --vary` LLM contract, env vars, fallback behavior |

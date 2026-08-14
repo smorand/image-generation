@@ -38,6 +38,67 @@ image-gen generate \
 
 Generate images using SDXL safetensors model.
 
+### `generate-similar`
+
+Re-generate new images from an already-generated image's embedded parameters,
+with a fresh random seed each time. Reads the EXIF metadata written by
+`generate`/`generate-var` (prompt, model, sampler settings, LoRAs, etc.) and
+reuses it as-is, except the seed, which always changes (that's the point of the
+command). Any parameter can be overridden with the same flags as `generate`.
+
+```bash
+# 5 variations of out.jpg, same everything except the seed
+image-gen generate-similar out.jpg --count 5
+
+# Same, but force a different CLIP skip and scheduler
+image-gen generate-similar out.jpg --count 5 --clip-skip 4 --scheduler euler
+```
+
+The source's `model`/`vae` are stored as filenames only (not full paths), so
+they're looked up by exact filename in `--model-dir` (default
+`~/.cache/models`, non-recursive). Pass `--model`/`--vae` to bypass the lookup
+entirely. Output defaults to `<source>_similar.jpg` (or `_similar_00.jpg`,
+`_similar_01.jpg`, ... when generating more than one image) next to the
+source; pass `--output` to control it explicitly. There is no `--seed` option:
+use `generate --seed ...` if you need to reproduce one exact image.
+
+`--keep-seed` reuses the source's exact seed for every generated image instead
+of a fresh random one each time (useful to isolate the effect of a prompt
+change, e.g. together with `--vary`, on identical noise).
+
+#### `--vary`: LLM-driven prompt variation
+
+`--vary "instruction"` has an LLM produce a fresh prompt (and optionally
+negative prompt) variation for each image instead of reusing the source's
+prompt verbatim, guided by an explicit instruction and, optionally, a
+vocabulary file in the same format as `generate-var` specs (`--vocab`, see
+[`.agent_docs/generate-var.md`](.agent_docs/generate-var.md)). One independent
+LLM call is made per image; previously generated variations are fed back in to
+reduce repeats.
+
+Configure any OpenAI-compatible endpoint via environment variables or CLI
+overrides:
+
+| Env var | CLI override | Required |
+|---------|---------------|----------|
+| `IMAGEGEN_MODEL_BASE_URL` | `--llm-base-url` | yes |
+| `IMAGEGEN_MODEL_NAME` | `--llm-model` | yes |
+| `IMAGEGEN_MODEL_API_KEY` | `--llm-api-key` | no (defaults to `not-needed`, fine for most local backends) |
+
+```bash
+export IMAGEGEN_MODEL_BASE_URL=http://localhost:11434/v1
+export IMAGEGEN_MODEL_NAME=llama3.1
+image-gen generate-similar out.jpg --count 5 \
+  --vary "change the outfit to something more casual, keep the same pose" \
+  --vocab ~/.data/image-gen/prompts.yaml \
+  --keep-seed
+```
+
+`--llm-temperature` (default 1.0, range 0-2) controls variation diversity.
+`--vocab` requires `--vary`. See
+[`.agent_docs/generate-similar-llm.md`](.agent_docs/generate-similar-llm.md)
+for the exact JSON contract, fallback behavior, and vocabulary truncation.
+
 ### `generate-var`
 
 Continuous, variable-driven generation from a YAML spec. The spec defines a
@@ -310,4 +371,5 @@ path (e.g. the flat files in `~/.cache/models/`).
 - **torch** - GPU acceleration
 - **safetensors** - Model loading
 - **typer** - CLI interface
+- **openai** - LLM client for `generate-similar --vary` (any OpenAI-compatible endpoint)
 - **Pillow** - Image handling

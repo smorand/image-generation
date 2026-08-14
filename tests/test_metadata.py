@@ -3,9 +3,10 @@
 import json
 
 import piexif
+import pytest
 from PIL import Image
 
-from image_gen.metadata import GenerationMetadata, save_image_with_metadata
+from image_gen.metadata import GenerationMetadata, load_metadata, save_image_with_metadata
 
 
 def _read_usercomment_json(path):
@@ -77,3 +78,36 @@ def test_non_png_suffix_coerced_to_jpg(tmp_path):
     out = tmp_path / "img.webp"
     saved = save_image_with_metadata(img, out, _meta())
     assert saved.suffix == ".jpg"
+
+
+def test_load_metadata_roundtrip_png(tmp_path):
+    img = Image.new("RGB", (16, 16), (1, 2, 3))
+    out = tmp_path / "img.png"
+    save_image_with_metadata(img, out, _meta(source_image="orig.jpg"))
+    data = load_metadata(out)
+    assert data["prompt"] == "a prompt"
+    assert data["seed"] == 123
+    assert data["clip_skip"] == 2
+    assert data["source_image"] == "orig.jpg"
+    assert "vae" not in data
+
+
+def test_load_metadata_roundtrip_jpeg(tmp_path):
+    img = Image.new("RGB", (16, 16))
+    out = tmp_path / "img.jpg"
+    save_image_with_metadata(img, out, _meta())
+    data = load_metadata(out)
+    assert data["prompt"] == "a prompt"
+    assert data["scheduler"] == "euler_a"
+
+
+def test_load_metadata_missing_exif_raises(tmp_path):
+    out = tmp_path / "plain.jpg"
+    Image.new("RGB", (16, 16)).save(out, "JPEG")
+    with pytest.raises(ValueError, match="No generation metadata found"):
+        load_metadata(out)
+
+
+def test_load_metadata_missing_file_raises(tmp_path):
+    with pytest.raises(ValueError):
+        load_metadata(tmp_path / "does-not-exist.jpg")
