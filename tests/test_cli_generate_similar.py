@@ -484,3 +484,50 @@ def test_generate_similar_multiple_sources_reuses_pipeline_when_config_unchanged
     assert result.exit_code == 0, result.output
     assert load_count["n"] == 1
     assert "Reusing already-loaded model" in result.output
+
+
+def test_generate_similar_missing_source_warns_and_continues(tmp_path, monkeypatch):
+    source_a = _make_source(tmp_path)
+    source_a.rename(tmp_path / "a.jpg")
+    source_a = tmp_path / "a.jpg"
+    missing = tmp_path / "missing.jpg"
+    model_dir = _setup_model_dir(tmp_path)
+
+    fake = _FakePipeline(model_dir / "fake_model.safetensors")
+    monkeypatch.setattr(cli_mod, "SDXLPipeline", lambda **kw: fake)
+
+    result = runner.invoke(
+        app,
+        [
+            "generate-similar",
+            str(source_a),
+            str(missing),
+            "--count", "1",
+            "--model-dir", str(model_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"'{missing}' does not exist, skipping" in result.output
+    assert (tmp_path / "a_similar.jpg").exists()
+    assert fake.calls == 1
+
+
+def test_generate_similar_all_sources_missing_is_clean(tmp_path, monkeypatch):
+    model_dir = _setup_model_dir(tmp_path)
+    monkeypatch.setattr(cli_mod, "SDXLPipeline", lambda **kw: _FakePipeline(None))
+
+    result = runner.invoke(
+        app,
+        [
+            "generate-similar",
+            str(tmp_path / "missing1.jpg"),
+            str(tmp_path / "missing2.jpg"),
+            "--count", "1",
+            "--model-dir", str(model_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count("does not exist, skipping") == 2
+    assert "Generated 0 image(s)" in result.output
