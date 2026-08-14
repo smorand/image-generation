@@ -40,11 +40,12 @@ Generate images using SDXL safetensors model.
 
 ### `generate-similar`
 
-Re-generate new images from an already-generated image's embedded parameters,
-with a fresh random seed each time. Reads the EXIF metadata written by
-`generate`/`generate-var` (prompt, model, sampler settings, LoRAs, etc.) and
-reuses it as-is, except the seed, which always changes (that's the point of the
-command). Any parameter can be overridden with the same flags as `generate`.
+Re-generate new images from one or more already-generated images' embedded
+parameters, with a fresh random seed each time. Reads the EXIF metadata
+written by `generate`/`generate-var` (prompt, model, sampler settings, LoRAs,
+etc.) and reuses it as-is, except the seed, which always changes (that's the
+point of the command). Any parameter can be overridden with the same flags as
+`generate`, applied identically to every source.
 
 ```bash
 # 5 variations of out.jpg, same everything except the seed
@@ -52,19 +53,25 @@ image-gen generate-similar out.jpg --count 5
 
 # Same, but force a different CLIP skip and scheduler
 image-gen generate-similar out.jpg --count 5 --clip-skip 4 --scheduler euler
+
+# Multiple sources: processed in order, --count images each (3 sources x
+# --count 4 = 12 images total). No sources given is a no-op.
+image-gen generate-similar a.jpg b.jpg c.jpg --count 4
 ```
 
 The source's `model`/`vae` are stored as filenames only (not full paths), so
 they're looked up by exact filename in `--model-dir` (default
 `~/.cache/models`, non-recursive). Pass `--model`/`--vae` to bypass the lookup
 entirely. Output defaults to `<source>_similar.jpg` (or `_similar_00.jpg`,
-`_similar_01.jpg`, ... when generating more than one image) next to the
-source; pass `--output` to control it explicitly. There is no `--seed` option:
-use `generate --seed ...` if you need to reproduce one exact image.
+`_similar_01.jpg`, ... when generating more than one image per source) next to
+each source; pass `--output` to control it explicitly (only with a single
+source, to avoid collisions). There is no `--seed` option: use
+`generate --seed ...` if you need to reproduce one exact image.
 
-`--keep-seed` reuses the source's exact seed for every generated image instead
-of a fresh random one each time (useful to isolate the effect of a prompt
-change, e.g. together with `--vary`, on identical noise).
+`--keep-seed` reuses each source's own exact seed for every image generated
+from it, instead of a fresh random one each time (useful to isolate the effect
+of a prompt change, e.g. together with `--vary`, on identical noise). With
+multiple sources, each keeps its own seed.
 
 #### `--vary`: LLM-driven prompt variation
 

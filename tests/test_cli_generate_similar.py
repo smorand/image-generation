@@ -346,3 +346,141 @@ def test_generate_similar_vary_produces_varied_prompts(tmp_path, monkeypatch):
         assert data["prompt"].startswith("a girl in a garden, variation")
         prompts.add(data["prompt"])
     assert len(prompts) == 3
+
+
+def test_generate_similar_no_sources_is_noop(tmp_path, monkeypatch):
+    model_dir = _setup_model_dir(tmp_path)
+    monkeypatch.setattr(cli_mod, "SDXLPipeline", lambda **kw: _FakePipeline(None))
+
+    result = runner.invoke(app, ["generate-similar", "--model-dir", str(model_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "nothing to do" in result.output.lower()
+
+
+def test_generate_similar_multiple_sources_generates_count_each(tmp_path, monkeypatch):
+    source_a = _make_source(tmp_path, seed=111)
+    source_a.rename(tmp_path / "a.jpg")
+    source_a = tmp_path / "a.jpg"
+    source_b = _make_source(tmp_path, seed=222, prompt="a boy on a beach")
+    source_b.rename(tmp_path / "b.jpg")
+    source_b = tmp_path / "b.jpg"
+    model_dir = _setup_model_dir(tmp_path)
+
+    fake = _FakePipeline(model_dir / "fake_model.safetensors")
+    monkeypatch.setattr(cli_mod, "SDXLPipeline", lambda **kw: fake)
+
+    result = runner.invoke(
+        app,
+        [
+            "generate-similar",
+            str(source_a),
+            str(source_b),
+            "--count", "2",
+            "--model-dir", str(model_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fake.calls == 4
+
+    for i in range(2):
+        data = _read_usercomment_json(tmp_path / f"a_similar_{i:02d}.jpg")
+        assert data["source_image"] == "a.jpg"
+        assert data["prompt"] == "a girl in a garden"
+
+    for i in range(2):
+        data = _read_usercomment_json(tmp_path / f"b_similar_{i:02d}.jpg")
+        assert data["source_image"] == "b.jpg"
+        assert data["prompt"] == "a boy on a beach"
+
+
+def test_generate_similar_multiple_sources_keep_seed_uses_each_own_seed(tmp_path, monkeypatch):
+    source_a = _make_source(tmp_path, seed=111)
+    source_a.rename(tmp_path / "a.jpg")
+    source_a = tmp_path / "a.jpg"
+    source_b = _make_source(tmp_path, seed=222)
+    source_b.rename(tmp_path / "b.jpg")
+    source_b = tmp_path / "b.jpg"
+    model_dir = _setup_model_dir(tmp_path)
+
+    fake = _FakePipeline(model_dir / "fake_model.safetensors")
+    monkeypatch.setattr(cli_mod, "SDXLPipeline", lambda **kw: fake)
+
+    result = runner.invoke(
+        app,
+        [
+            "generate-similar",
+            str(source_a),
+            str(source_b),
+            "--count", "2",
+            "--model-dir", str(model_dir),
+            "--keep-seed",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    for i in range(2):
+        assert _read_usercomment_json(tmp_path / f"a_similar_{i:02d}.jpg")["seed"] == 111
+    for i in range(2):
+        assert _read_usercomment_json(tmp_path / f"b_similar_{i:02d}.jpg")["seed"] == 222
+
+
+def test_generate_similar_multiple_sources_with_output_errors(tmp_path, monkeypatch):
+    source_a = _make_source(tmp_path)
+    source_a.rename(tmp_path / "a.jpg")
+    source_a = tmp_path / "a.jpg"
+    source_b = _make_source(tmp_path)
+    source_b.rename(tmp_path / "b.jpg")
+    source_b = tmp_path / "b.jpg"
+    model_dir = _setup_model_dir(tmp_path)
+
+    monkeypatch.setattr(cli_mod, "SDXLPipeline", lambda **kw: _FakePipeline(None))
+
+    result = runner.invoke(
+        app,
+        [
+            "generate-similar",
+            str(source_a),
+            str(source_b),
+            "--count", "1",
+            "--model-dir", str(model_dir),
+            "--output", str(tmp_path / "out.jpg"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--output cannot be used with multiple source images" in result.output
+
+
+def test_generate_similar_multiple_sources_reuses_pipeline_when_config_unchanged(tmp_path, monkeypatch):
+    source_a = _make_source(tmp_path)
+    source_a.rename(tmp_path / "a.jpg")
+    source_a = tmp_path / "a.jpg"
+    source_b = _make_source(tmp_path)
+    source_b.rename(tmp_path / "b.jpg")
+    source_b = tmp_path / "b.jpg"
+    model_dir = _setup_model_dir(tmp_path)
+
+    load_count = {"n": 0}
+
+    def _factory(**kw):
+        load_count["n"] += 1
+        return _FakePipeline(**kw)
+
+    monkeypatch.setattr(cli_mod, "SDXLPipeline", _factory)
+
+    result = runner.invoke(
+        app,
+        [
+            "generate-similar",
+            str(source_a),
+            str(source_b),
+            "--count", "1",
+            "--model-dir", str(model_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert load_count["n"] == 1
+    assert "Reusing already-loaded model" in result.output
