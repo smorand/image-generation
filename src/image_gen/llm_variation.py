@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +31,15 @@ _NO_KEY_PLACEHOLDER = "not-needed"
 
 # Matches the first brace-delimited JSON object in a larger text blob.
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+# Best-effort salvage for JSON truncated mid-response (e.g. hit the token
+# limit): pull the "prompt"/"negative_prompt" string values directly, without
+# requiring a closing brace or even a closing quote.
+_PROMPT_FIELD_RE = re.compile(r'"prompt"\s*:\s*"((?:\\.|[^"\\])*)"?', re.DOTALL)
+_NEGATIVE_FIELD_RE = re.compile(r'"negative_prompt"\s*:\s*"((?:\\.|[^"\\])*)"?', re.DOTALL)
+# Default output budget: SDXL prompts are often long, dense tag lists; a low
+# max_tokens truncates the LLM's JSON response mid-string.
+_DEFAULT_MAX_TOKENS = 4096
 
 _SYSTEM_PROMPT = (
     "You are a prompt-variation assistant for an SDXL image generation tool. "
@@ -153,8 +163,44 @@ def _build_user_message(
     return "\n\n".join(parts)
 
 
+def _unescape_json_string(raw: str) -> str:
+    """Best-effort unescape of a JSON string fragment (may be unterminated)."""
+    try:
+        return json.loads(f'"{raw}"')
+    except json.JSONDecodeError:
+        # Likely cut off mid-escape (trailing lone backslash); drop it and retry once.
+        try:
+            return json.loads(f'"{raw.rstrip(chr(92))}"')
+        except json.JSONDecodeError:
+            return raw
+
+
+def _salvage_truncated_json(content: str) -> dict | None:
+    """Recover prompt/negative_prompt from a JSON response cut off mid-string.
+
+    Returns None if no "prompt" field can be found at all.
+    """
+    match = _PROMPT_FIELD_RE.search(content)
+    if not match:
+        return None
+    prompt = _unescape_json_string(match.group(1))
+
+    negative = None
+    neg_match = _NEGATIVE_FIELD_RE.search(content)
+    if neg_match:
+        negative = _unescape_json_string(neg_match.group(1))
+
+    print(
+        "Warning: LLM response was truncated (likely hit the output token limit); "
+        "using the partial prompt as-is.",
+        file=sys.stderr,
+    )
+    return {"prompt": prompt, "negative_prompt": negative}
+
+
 def _extract_json(content: str) -> dict:
-    """Parse strict JSON, falling back to extracting the first {...} block."""
+    """Parse strict JSON, falling back to extracting the first {...} block,
+    then to salvaging a truncated response."""
     try:
         return json.loads(content)
     except json.JSONDecodeError:
@@ -166,6 +212,10 @@ def _extract_json(content: str) -> dict:
             return json.loads(match.group(0))
         except json.JSONDecodeError:
             pass
+
+    salvaged = _salvage_truncated_json(content)
+    if salvaged is not None:
+        return salvaged
 
     excerpt = content[:500]
     raise ValueError(f"LLM did not return valid JSON. Response excerpt: {excerpt!r}")
@@ -221,6 +271,7 @@ def generate_variation(
             model=config.model,
             messages=messages,
             temperature=temperature,
+            max_tokens=_DEFAULT_MAX_TOKENS,
             response_format={"type": "json_object"},
         )
     except Exception:
@@ -230,6 +281,7 @@ def generate_variation(
             model=config.model,
             messages=messages,
             temperature=temperature,
+            max_tokens=_DEFAULT_MAX_TOKENS,
         )
 
     content = response.choices[0].message.content or ""

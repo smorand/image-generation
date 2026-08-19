@@ -187,6 +187,38 @@ def test_generate_variation_missing_prompt_falls_back_to_base(monkeypatch):
     assert result.negative_prompt == "blurry"
 
 
+def test_generate_variation_salvages_truncated_json(monkeypatch, capsys):
+    content = '```json\n{"prompt": "a cat wearing a tiny hat, detailed fur, high'
+    fake = _FakeOpenAI([content])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+
+    result = generate_variation(_config(), "a cat", None, "vary it", None, [])
+
+    assert result.prompt == "a cat wearing a tiny hat, detailed fur, high"
+    assert result.negative_prompt is None
+    assert "truncated" in capsys.readouterr().err
+
+
+def test_generate_variation_salvages_truncated_json_with_negative(monkeypatch):
+    content = '{"prompt": "a dog", "negative_prompt": "blur'
+    fake = _FakeOpenAI([content])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+
+    result = generate_variation(_config(), "a dog", None, "vary it", None, [])
+
+    assert result.prompt == "a dog"
+    assert result.negative_prompt == "blur"
+
+
+def test_generate_variation_sends_max_tokens(monkeypatch):
+    fake = _FakeOpenAI([json.dumps({"prompt": "a cat variation"})])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+
+    generate_variation(_config(), "a cat", None, "vary it", None, [])
+
+    assert fake.chat.completions.calls[0]["max_tokens"] == llm_variation._DEFAULT_MAX_TOKENS
+
+
 def test_generate_variation_without_openai_installed_raises(monkeypatch):
     monkeypatch.setattr(llm_variation, "OpenAI", None)
 
