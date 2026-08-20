@@ -3,6 +3,7 @@
 import logging
 import os
 import random
+import uuid
 import warnings
 from pathlib import Path
 from typing import Annotated, Optional
@@ -768,7 +769,9 @@ def generate_similar(
         else:
             default_suffix = ".png" if source.suffix.lower() == ".png" else ".jpg"
             parent = source.resolve().parent
-            stem = f"{source.stem}_similar"
+            # A short random tag per source/run, so repeated generate-similar
+            # invocations on the same source don't overwrite each other's files.
+            stem = f"{source.stem}_s{uuid.uuid4().hex[:8]}"
             suffix = default_suffix
         parent.mkdir(parents=True, exist_ok=True)
 

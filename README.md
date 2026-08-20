@@ -62,11 +62,14 @@ image-gen generate-similar a.jpg b.jpg c.jpg --count 4
 The source's `model`/`vae` are stored as filenames only (not full paths), so
 they're looked up by exact filename in `--model-dir` (default
 `~/.cache/models`, non-recursive). Pass `--model`/`--vae` to bypass the lookup
-entirely. Output defaults to `<source>_similar.jpg` (or `_similar_00.jpg`,
-`_similar_01.jpg`, ... when generating more than one image per source) next to
-each source; pass `--output` to control it explicitly (only with a single
-source, to avoid collisions). There is no `--seed` option: use
-`generate --seed ...` if you need to reproduce one exact image.
+entirely. Output defaults to `<source>_s<uuid>.jpg` (or `_s<uuid>_00.jpg`,
+`_s<uuid>_01.jpg`, ... when generating more than one image per source) next
+to each source, where `<uuid>` is a short random tag generated once per
+source for that run, so repeated `generate-similar` invocations on the same
+source never overwrite each other's files. Pass `--output` to control the
+name explicitly (only with a single source, to avoid collisions). There is no
+`--seed` option: use `generate --seed ...` if you need to reproduce one exact
+image.
 
 `--keep-seed` reuses each source's own exact seed for every image generated
 from it, instead of a fresh random one each time (useful to isolate the effect

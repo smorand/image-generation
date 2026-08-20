@@ -86,6 +86,18 @@ def _setup_model_dir(tmp_path, name="fake_model.safetensors"):
     return model_dir
 
 
+def _default_outputs(tmp_path, prefix, count, suffix=".jpg"):
+    """Match the default '<prefix>_s<uuid>[_NN]<suffix>' naming, sorted.
+
+    Each generate-similar run tags its default outputs with a random per-run
+    id, so tests glob for the pattern instead of a fixed filename.
+    """
+    pattern = f"{prefix}_s*{suffix}" if count == 1 else f"{prefix}_s*_[0-9][0-9]{suffix}"
+    matches = sorted(tmp_path.glob(pattern))
+    assert len(matches) == count, f"expected {count} matches for {pattern!r}, got {matches}"
+    return matches
+
+
 def test_generate_similar_writes_count_images_with_distinct_seeds(tmp_path, monkeypatch):
     source = _make_source(tmp_path)
     model_dir = _setup_model_dir(tmp_path)
@@ -106,10 +118,9 @@ def test_generate_similar_writes_count_images_with_distinct_seeds(tmp_path, monk
     assert result.exit_code == 0, result.output
     assert fake.calls == 3
 
-    outputs = [tmp_path / f"source_similar_{i:02d}.jpg" for i in range(3)]
+    outputs = _default_outputs(tmp_path, "source", 3)
     seeds = set()
     for out in outputs:
-        assert out.exists()
         data = _read_usercomment_json(out)
         assert data["prompt"] == "a girl in a garden"
         assert data["steps"] == 25
@@ -138,8 +149,7 @@ def test_generate_similar_applies_override(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 0, result.output
-    out = tmp_path / "source_similar.jpg"
-    assert out.exists()
+    (out,) = _default_outputs(tmp_path, "source", 1)
     data = _read_usercomment_json(out)
     assert data["clip_skip"] == 4
     assert data["prompt"] == "a girl in a garden"
@@ -253,8 +263,8 @@ def test_generate_similar_keep_seed_reuses_source_seed(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 0, result.output
-    for i in range(3):
-        data = _read_usercomment_json(tmp_path / f"source_similar_{i:02d}.jpg")
+    for out in _default_outputs(tmp_path, "source", 3):
+        data = _read_usercomment_json(out)
         assert data["seed"] == 777
 
 
@@ -340,8 +350,8 @@ def test_generate_similar_vary_produces_varied_prompts(tmp_path, monkeypatch):
 
     assert result.exit_code == 0, result.output
     prompts = set()
-    for i in range(3):
-        data = _read_usercomment_json(tmp_path / f"source_similar_{i:02d}.jpg")
+    for out in _default_outputs(tmp_path, "source", 3):
+        data = _read_usercomment_json(out)
         assert data["llm_request"] == "add variety"
         assert data["prompt"].startswith("a girl in a garden, variation")
         prompts.add(data["prompt"])
@@ -384,13 +394,13 @@ def test_generate_similar_multiple_sources_generates_count_each(tmp_path, monkey
     assert result.exit_code == 0, result.output
     assert fake.calls == 4
 
-    for i in range(2):
-        data = _read_usercomment_json(tmp_path / f"a_similar_{i:02d}.jpg")
+    for out in _default_outputs(tmp_path, "a", 2):
+        data = _read_usercomment_json(out)
         assert data["source_image"] == "a.jpg"
         assert data["prompt"] == "a girl in a garden"
 
-    for i in range(2):
-        data = _read_usercomment_json(tmp_path / f"b_similar_{i:02d}.jpg")
+    for out in _default_outputs(tmp_path, "b", 2):
+        data = _read_usercomment_json(out)
         assert data["source_image"] == "b.jpg"
         assert data["prompt"] == "a boy on a beach"
 
@@ -420,10 +430,10 @@ def test_generate_similar_multiple_sources_keep_seed_uses_each_own_seed(tmp_path
     )
 
     assert result.exit_code == 0, result.output
-    for i in range(2):
-        assert _read_usercomment_json(tmp_path / f"a_similar_{i:02d}.jpg")["seed"] == 111
-    for i in range(2):
-        assert _read_usercomment_json(tmp_path / f"b_similar_{i:02d}.jpg")["seed"] == 222
+    for out in _default_outputs(tmp_path, "a", 2):
+        assert _read_usercomment_json(out)["seed"] == 111
+    for out in _default_outputs(tmp_path, "b", 2):
+        assert _read_usercomment_json(out)["seed"] == 222
 
 
 def test_generate_similar_multiple_sources_with_output_errors(tmp_path, monkeypatch):
@@ -509,7 +519,7 @@ def test_generate_similar_missing_source_warns_and_continues(tmp_path, monkeypat
 
     assert result.exit_code == 0, result.output
     assert f"'{missing}' does not exist, skipping" in result.output
-    assert (tmp_path / "a_similar.jpg").exists()
+    _default_outputs(tmp_path, "a", 1)
     assert fake.calls == 1
 
 
