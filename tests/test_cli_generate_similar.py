@@ -335,7 +335,7 @@ def test_generate_similar_vary_produces_varied_prompts(tmp_path, monkeypatch):
         counter["n"] += 1
         return VariationResult(prompt=f"{base_prompt}, variation {counter['n']}", negative_prompt=None)
 
-    monkeypatch.setattr(llm_variation, "generate_variation", _fake_generate_variation)
+    monkeypatch.setattr(llm_variation, "generate_variation_with_retry", _fake_generate_variation)
 
     result = runner.invoke(
         app,

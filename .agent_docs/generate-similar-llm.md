@@ -85,7 +85,12 @@ LLM-varied generations in the JSONL log or via `get_info.sh`.
 
 ## Failure handling
 
-No automatic retry on a genuinely unparseable response or a network/SDK
-error: the command aborts with a clear message and `exit 1`. Images already
-generated earlier in the same run stay on disk (no rollback), consistent with
-the rest of `generate-similar`.
+`generate_variation_with_retry()` (cli.py calls this, not `generate_variation`
+directly) retries only on `ValueError` (invalid/unparsable JSON response): up
+to 20 attempts, exponential backoff `2**(attempt-1)`s capped at 15s. Each
+retry re-issues the same request (fresh sampling can yield valid JSON next
+time). A `RuntimeError` (missing `openai` package) or any other exception
+still aborts immediately, no retry. If all 20 attempts fail, raises
+`ValueError` and the command aborts with `exit 1`. Images already generated
+earlier in the same run stay on disk (no rollback), consistent with the rest
+of `generate-similar`.

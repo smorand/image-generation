@@ -790,7 +790,7 @@ def generate_similar(
             iter_prompt, iter_negative = resolved_prompt, resolved_negative
             if vary is not None:
                 try:
-                    variation = llm_variation.generate_variation(
+                    variation = llm_variation.generate_variation_with_retry(
                         llm_config,
                         resolved_prompt,
                         resolved_negative,

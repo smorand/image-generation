@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -290,3 +291,68 @@ def generate_variation(
     prompt = data.get("prompt") or base_prompt
     negative = data.get("negative_prompt")
     return VariationResult(prompt=prompt, negative_prompt=negative)
+
+
+def generate_variation_with_retry(
+    config: LLMConfig,
+    base_prompt: str,
+    base_negative: str | None,
+    user_request: str,
+    vocabulary: str | None,
+    previous_prompts: list[str],
+    temperature: float = 1.0,
+    max_attempts: int = 20,
+    max_backoff: float = 15.0,
+) -> VariationResult:
+    """Call generate_variation, retrying on invalid-JSON failures.
+
+    Retries only on ValueError (invalid/unparsable JSON response), with
+    exponential backoff (1s, 2s, 4s, ... capped at max_backoff). Other
+    failures (e.g. RuntimeError for a missing SDK) propagate immediately.
+
+    Args:
+        config: Resolved LLM endpoint config.
+        base_prompt: The source image's prompt.
+        base_negative: The source image's negative prompt, if any.
+        user_request: Explicit instruction on the kind of variation wanted.
+        vocabulary: Optional vocabulary text, or None.
+        previous_prompts: Prompts already produced earlier in this run.
+        temperature: Sampling temperature (diversity).
+        max_attempts: Maximum number of attempts before giving up.
+        max_backoff: Cap, in seconds, on the exponential backoff delay.
+
+    Returns:
+        The new prompt and negative prompt.
+
+    Raises:
+        ValueError: If every attempt fails to produce valid JSON.
+        RuntimeError: If the `openai` package is not installed.
+    """
+    last_error: ValueError | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return generate_variation(
+                config,
+                base_prompt,
+                base_negative,
+                user_request,
+                vocabulary,
+                previous_prompts,
+                temperature=temperature,
+            )
+        except ValueError as exc:
+            last_error = exc
+            if attempt == max_attempts:
+                break
+            delay = min(2 ** (attempt - 1), max_backoff)
+            print(
+                f"Warning: LLM variation attempt {attempt}/{max_attempts} failed "
+                f"({exc}); retrying in {delay:.0f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+
+    assert last_error is not None
+    raise ValueError(
+        f"LLM did not return valid JSON after {max_attempts} attempts. Last error: {last_error}"
+    ) from last_error

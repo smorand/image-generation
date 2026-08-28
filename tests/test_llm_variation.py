@@ -7,8 +7,10 @@ import pytest
 from image_gen import llm_variation
 from image_gen.llm_variation import (
     LLMConfig,
+    VariationResult,
     format_vocabulary,
     generate_variation,
+    generate_variation_with_retry,
     resolve_llm_config,
 )
 
@@ -224,3 +226,58 @@ def test_generate_variation_without_openai_installed_raises(monkeypatch):
 
     with pytest.raises(RuntimeError, match="openai' package is required"):
         generate_variation(_config(), "a cat", None, "vary it", None, [])
+
+
+# --------------------------------------------------------------------------- #
+# generate_variation_with_retry
+# --------------------------------------------------------------------------- #
+def test_generate_variation_with_retry_succeeds_after_failures(monkeypatch):
+    calls = {"n": 0}
+    sleeps = []
+
+    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ValueError("LLM did not return valid JSON. Response excerpt: 'oops'")
+        return VariationResult(prompt="ok prompt", negative_prompt=None)
+
+    monkeypatch.setattr(llm_variation, "generate_variation", _fake)
+    monkeypatch.setattr(llm_variation.time, "sleep", lambda s: sleeps.append(s))
+
+    result = generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
+
+    assert result.prompt == "ok prompt"
+    assert calls["n"] == 3
+    assert sleeps == [1, 2]
+
+
+def test_generate_variation_with_retry_backoff_capped(monkeypatch):
+    sleeps = []
+
+    def _always_fails(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+        raise ValueError("bad json")
+
+    monkeypatch.setattr(llm_variation, "generate_variation", _always_fails)
+    monkeypatch.setattr(llm_variation.time, "sleep", lambda s: sleeps.append(s))
+
+    with pytest.raises(ValueError, match="after 20 attempts"):
+        generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
+
+    assert len(sleeps) == 19
+    assert max(sleeps) == 15
+    assert sleeps[:5] == [1, 2, 4, 8, 15]
+
+
+def test_generate_variation_with_retry_does_not_retry_runtime_error(monkeypatch):
+    calls = {"n": 0}
+
+    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+        calls["n"] += 1
+        raise RuntimeError("no openai package")
+
+    monkeypatch.setattr(llm_variation, "generate_variation", _fake)
+
+    with pytest.raises(RuntimeError, match="no openai package"):
+        generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
+
+    assert calls["n"] == 1
