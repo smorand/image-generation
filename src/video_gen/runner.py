@@ -125,7 +125,7 @@ def dry_run(spec: VideoVarSpec, rng: random.Random, samples: int, echo: Echo) ->
     num_frames, fps = _resolve_num_frames(spec, {}, backend)
     echo(f"backend={backend.name} frames={num_frames} fps={fps} duration={frames_to_duration(num_frames, fps)}s")
     for i in range(samples):
-        prompt, chosen = resolve_prompt(spec, rng)
+        prompt, neg_preview, chosen = resolve_prompt(spec, rng)
         out = render_output(spec.template_output, start + i, seed=0)
         out = str(Path(out).with_suffix(".mp4"))
         try:
@@ -134,6 +134,8 @@ def dry_run(spec: VideoVarSpec, rng: random.Random, samples: int, echo: Echo) ->
             src = f"<missing: {exc}>"
         echo(f"[{start + i:0{NUMBER_WIDTH}d}] {src} -> {out}")
         echo(f"  prompt: {prompt}")
+        if neg_preview:
+            echo(f"  neg:    {neg_preview}")
         echo(f"  vars:   {json.dumps(chosen, ensure_ascii=False)}")
 
 
@@ -198,7 +200,7 @@ def run(
 
         backend = pipeline.spec
         num_frames, fps = _resolve_num_frames(spec, overrides, backend)
-        prompt, chosen = resolve_prompt(spec, var_rng)
+        prompt, negative_resolved, chosen = resolve_prompt(spec, var_rng)
         seed = seed_rng.randint(0, 2**32 - 1)
 
         try:
@@ -215,7 +217,12 @@ def run(
         guidance = float(_param(spec, overrides, "guidance", backend.default_guidance))
         width = int(_param(spec, overrides, "width", backend.default_width))
         height = int(_param(spec, overrides, "height", backend.default_height))
-        negative = _param(spec, overrides, "negative_prompt", None) or spec.negative_prompt or DEFAULT_NEGATIVE_PROMPT
+        negative = (
+            _param(spec, overrides, "negative_prompt", None)
+            or negative_resolved
+            or spec.negative_prompt
+            or DEFAULT_NEGATIVE_PROMPT
+        )
 
         duration = frames_to_duration(num_frames, fps)
         echo(

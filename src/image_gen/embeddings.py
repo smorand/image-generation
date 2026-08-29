@@ -1,7 +1,7 @@
 """Textual inversion embedding loader for SDXL pipeline."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from diffusers import StableDiffusionXLPipeline
@@ -24,6 +24,10 @@ def load_embeddings(
     if not embedding_paths:
         return []
 
+    # diffusers registers load_textual_inversion dynamically at construction
+    # time; not visible in the pipeline class's static type.
+    p: Any = pipeline
+
     loaded_tokens = []
 
     for path_str in embedding_paths:
@@ -35,7 +39,7 @@ def load_embeddings(
         token_name = path.stem
 
         # Load into both text encoders for SDXL
-        pipeline.load_textual_inversion(
+        p.load_textual_inversion(
             str(path),
             token=token_name,
         )

@@ -43,7 +43,7 @@ def encode_frames(
 
     writer = imageio.get_writer(
         str(output_path),
-        format="ffmpeg",
+        format="ffmpeg",  # type: ignore[arg-type]  # imageio resolves the plugin by name at runtime
         fps=fps,
         codec="libx264",
         quality=quality,

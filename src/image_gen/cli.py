@@ -648,7 +648,7 @@ def generate_similar(
         else:
             source_model_name = meta.get("model")
             candidate = model_dir / source_model_name if source_model_name else None
-            if not source_model_name or not candidate.exists():
+            if candidate is None or not candidate.exists():
                 typer.echo(
                     f"Error: Model '{source_model_name}' not found in {model_dir}. "
                     "Pass --model to specify it explicitly.",
@@ -664,15 +664,15 @@ def generate_similar(
         else:
             source_vae_name = meta.get("vae")
             if source_vae_name:
-                candidate = model_dir / source_vae_name
-                if not candidate.exists():
+                vae_candidate = model_dir / source_vae_name
+                if not vae_candidate.exists():
                     typer.echo(
                         f"Error: VAE '{source_vae_name}' not found in {model_dir}. "
                         "Pass --vae to specify it explicitly.",
                         err=True,
                     )
                     raise typer.Exit(1)
-                vae_path = candidate
+                vae_path = vae_candidate
             else:
                 vae_path = None
 
@@ -698,7 +698,7 @@ def generate_similar(
         # IP-Adapter: overriding the reference image(s) resets preset/scale to `generate`
         # defaults unless also explicitly overridden; otherwise reuse the source as-is.
         if ip_adapter_image is not None:
-            resolved_ip_adapter_preset = ip_adapter if ip_adapter is not None else "face"
+            resolved_ip_adapter_preset: str | None = ip_adapter if ip_adapter is not None else "face"
             resolved_ip_adapter_images_paths = list(ip_adapter_image)
             resolved_ip_adapter_scale_arg = ip_adapter_scale
         else:
@@ -779,6 +779,8 @@ def generate_similar(
         for i in range(count):
             iter_prompt, iter_negative = resolved_prompt, resolved_negative
             if vary is not None:
+                if llm_config is None:
+                    raise RuntimeError("unreachable: llm_config is set whenever vary is not None")
                 try:
                     variation = llm_variation.generate_variation_with_retry(
                         llm_config,

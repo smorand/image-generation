@@ -15,11 +15,15 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 try:
     from openai import OpenAI
 except ImportError:  # pragma: no cover - exercised only when the SDK is absent
     OpenAI = None  # type: ignore[assignment,misc]
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageParam
 
 from .variables import load_spec
 
@@ -109,6 +113,10 @@ def resolve_llm_config(
     if missing:
         raise ValueError("generate-similar --vary requires an LLM endpoint. Set: " + "; ".join(missing))
 
+    # `missing` is empty here, so both are guaranteed non-empty strings; narrow for mypy
+    # without using `assert` (reserved for tests per project conventions).
+    if resolved_base_url is None or resolved_model is None:
+        raise RuntimeError("unreachable: missing was empty but a value is still None")
     return LLMConfig(base_url=resolved_base_url, api_key=resolved_api_key, model=resolved_model)
 
 
@@ -254,7 +262,7 @@ def generate_variation(
         )
 
     client = OpenAI(base_url=config.base_url, api_key=config.api_key)
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
             "role": "user",
@@ -356,7 +364,10 @@ def generate_variation_with_retry(
             )
             time.sleep(delay)
 
-    assert last_error is not None
+    if last_error is None:
+        # unreachable: max_attempts >= 1, so the loop above always runs at
+        # least once and sets last_error before falling through here.
+        raise RuntimeError("unreachable: no attempt was made")
     raise ValueError(
         f"LLM did not return valid JSON after {max_attempts} attempts. Last error: {last_error}"
     ) from last_error

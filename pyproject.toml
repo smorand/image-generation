@@ -40,6 +40,13 @@ packages = ["src/image_gen", "src/video_gen"]
 [tool.hatch.build.targets.sdist]
 include = ["src/image_gen", "src/video_gen"]
 
+[tool.bandit]
+# B311 (random module): this tool uses `random` exclusively for generative-art
+# seeds and prompt-variable draws (image-gen/video-gen), never for anything
+# security- or crypto-sensitive. Flagging every call site individually would
+# just be noise; skip the check project-wide instead.
+skips = ["B311"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
@@ -54,5 +61,9 @@ target-version = "py311"
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
     "ruff>=0.4.0",
+    "mypy>=1.13.0",
+    "types-PyYAML>=6.0.0",
+    "bandit>=1.7.0",
 ]

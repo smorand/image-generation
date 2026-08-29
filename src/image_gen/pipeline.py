@@ -3,6 +3,7 @@
 import gc
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import torch
 from diffusers import AutoencoderKL, StableDiffusionXLPipeline
@@ -93,7 +94,7 @@ class SDXLPipeline:
         else:
             self.dtype = dtype
 
-        self._pipeline: StableDiffusionXLPipeline | None = None
+        self._pipeline: Any | None = None
         self._prompt_encoder: SDXLPromptEncoder | None = None
         self._loaded_loras: list[str] = []
         self._loaded_embeddings: list[str] = []
@@ -105,8 +106,10 @@ class SDXLPipeline:
         if self._pipeline is not None:
             return
 
-        # Load main pipeline from safetensors
-        self._pipeline = StableDiffusionXLPipeline.from_single_file(
+        # Load main pipeline from safetensors. diffusers pipelines register
+        # submodules (vae, scheduler, ...) dynamically at runtime, so they are
+        # not visible in the class's static type; use `Any` for this block.
+        pipeline: Any = StableDiffusionXLPipeline.from_single_file(
             str(self.model_path),
             torch_dtype=self.dtype,
             use_safetensors=True,
@@ -118,25 +121,26 @@ class SDXLPipeline:
                 str(self.vae_path),
                 torch_dtype=self.dtype,
             )
-            self._pipeline.vae = vae
+            pipeline.vae = vae
 
         # Set scheduler
-        self._pipeline.scheduler = get_scheduler(
+        pipeline.scheduler = get_scheduler(
             self.scheduler_name,
-            self._pipeline.scheduler.config,
+            pipeline.scheduler.config,
         )
 
         # Move to device
-        self._pipeline = self._pipeline.to(self.device)
+        pipeline = pipeline.to(self.device)
 
         # Enable optimizations
         if self.device == "cuda":
-            self._pipeline.enable_model_cpu_offload()
-        self._pipeline.vae.enable_slicing()
-        self._pipeline.vae.enable_tiling()
+            pipeline.enable_model_cpu_offload()
+        pipeline.vae.enable_slicing()
+        pipeline.vae.enable_tiling()
 
+        self._pipeline = pipeline
         # Initialize prompt encoder for long prompt support
-        self._prompt_encoder = SDXLPromptEncoder(self._pipeline)
+        self._prompt_encoder = SDXLPromptEncoder(pipeline)
 
     def free_cache(self) -> None:
         """Release cached device memory without unloading the pipeline.
@@ -154,7 +158,7 @@ class SDXLPipeline:
             torch.cuda.empty_cache()
 
     @property
-    def pipeline(self) -> StableDiffusionXLPipeline:
+    def pipeline(self) -> Any:
         """Get the loaded pipeline."""
         if self._pipeline is None:
             raise RuntimeError("Pipeline not loaded. Call load() first.")
@@ -311,7 +315,8 @@ class SDXLPipeline:
         if self._ip_adapter_preset is not None:
             img2img_components["image_encoder"] = self.pipeline.image_encoder
             img2img_components["feature_extractor"] = self.pipeline.feature_extractor
-        img2img = StableDiffusionXLImg2ImgPipeline(**img2img_components)
+        # diffusers pipelines implement __call__ dynamically; not visible in the stub.
+        img2img: Any = StableDiffusionXLImg2ImgPipeline(**img2img_components)
 
         upscaled_images = []
         target_width = int(config.width * config.hires_scale)
@@ -319,7 +324,7 @@ class SDXLPipeline:
 
         for img in images:
             # Resize image to target resolution
-            resized = img.resize((target_width, target_height), Image.LANCZOS)
+            resized = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
             # Run img2img pass with pre-encoded embeddings
             result = img2img(

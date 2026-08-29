@@ -1,5 +1,7 @@
 """Scheduler configurations for SDXL pipeline."""
 
+from typing import Any
+
 from diffusers import (
     DDIMScheduler,
     DPMSolverMultistepScheduler,
@@ -9,7 +11,7 @@ from diffusers import (
     UniPCMultistepScheduler,
 )
 
-SCHEDULER_MAPPING = {
+SCHEDULER_MAPPING: dict[str, tuple[type, dict[str, bool | str]]] = {
     "dpm++_2m_karras": (
         DPMSolverMultistepScheduler,
         {"use_karras_sigmas": True, "algorithm_type": "dpmsolver++"},
@@ -58,4 +60,7 @@ def get_scheduler(name: str, config: dict) -> object:
         raise ValueError(f"Unknown scheduler: {name}. Supported: {SUPPORTED_SCHEDULERS}")
 
     scheduler_class, extra_kwargs = SCHEDULER_MAPPING[name]
-    return scheduler_class.from_config(config, **extra_kwargs)
+    # All diffusers scheduler classes implement ConfigMixin.from_config; not
+    # visible on the plain `type` this dict stores statically.
+    scheduler_class_any: Any = scheduler_class
+    return scheduler_class_any.from_config(config, **extra_kwargs)

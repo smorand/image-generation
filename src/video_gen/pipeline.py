@@ -17,6 +17,7 @@ import gc
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import torch
 from PIL import Image
@@ -78,7 +79,7 @@ class VideoPipeline:
             self.dtype = torch.bfloat16
         else:
             self.dtype = torch.float32
-        self._pipe = None
+        self._pipe: Any = None
 
     # ------------------------------------------------------------------ #
     # Loading
@@ -117,7 +118,7 @@ class VideoPipeline:
         self._pipe = LTXImageToVideoPipeline.from_pretrained(self.repo, torch_dtype=self.dtype)
 
     def _place(self) -> None:
-        pipe = self._pipe
+        pipe: Any = self._pipe
         pipe.set_progress_bar_config(disable=True)
         # VAE tiling/slicing keeps the decode step within budget on Mac.
         if hasattr(pipe, "vae"):
@@ -167,7 +168,7 @@ class VideoPipeline:
         sw, sh = image.size
         ratio = max(tw / sw, th / sh)
         rw, rh = round(sw * ratio), round(sh * ratio)
-        image = image.resize((rw, rh), Image.LANCZOS)
+        image = image.resize((rw, rh), Image.Resampling.LANCZOS)
         left = (rw - tw) // 2
         top = (rh - th) // 2
         return image.crop((left, top, left + tw, top + th))

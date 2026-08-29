@@ -7,7 +7,7 @@ conditions a single generation on a reference image with no training.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 
@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 
 # HuggingFace repo hosting all SDXL IP-Adapter weights and image encoders.
 IP_ADAPTER_REPO = "h94/IP-Adapter"
+# Pinned to the repo's current (and, per its history, only ever) commit so a
+# future upstream push can't silently swap the weights we download.
+IP_ADAPTER_REVISION = "018e402774aeeddd60609b4ecdb7e298259dc729"
 
 # Presets map a friendly name to the weight file and its matching image encoder.
 # "face" is the default for consistent-model generation (portrait/identity).
@@ -114,19 +117,25 @@ def load_ip_adapter(
     # would pick the wrong one).
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(
         IP_ADAPTER_REPO,
+        revision=IP_ADAPTER_REVISION,
         subfolder=cfg["encoder_subfolder"],
         torch_dtype=dtype,
     ).to(device)
-    pipeline.image_encoder = image_encoder
+
+    # diffusers registers image_encoder/load_ip_adapter/set_ip_adapter_scale
+    # dynamically at construction time; not visible in the static type.
+    p: Any = pipeline
+    p.image_encoder = image_encoder
 
     # image_encoder_folder=None -> reuse the encoder we just attached.
-    pipeline.load_ip_adapter(
+    p.load_ip_adapter(
         IP_ADAPTER_REPO,
+        revision=IP_ADAPTER_REVISION,
         subfolder=cfg["weight_subfolder"],
         weight_name=cfg["weight_name"],
         image_encoder_folder=None,
     )
 
     effective_scale = scale if scale is not None else cfg["default_scale"]
-    pipeline.set_ip_adapter_scale(effective_scale)
+    p.set_ip_adapter_scale(effective_scale)
     return effective_scale

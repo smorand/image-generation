@@ -1,7 +1,7 @@
 """LoRA loading utilities for SDXL pipeline."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from diffusers import StableDiffusionXLPipeline
@@ -50,6 +50,10 @@ def load_loras(
     if not lora_specs:
         return
 
+    # diffusers registers load_lora_weights/set_adapters dynamically (via a mixin
+    # applied at pipeline construction time); not visible in the static type.
+    p: Any = pipeline
+
     adapter_names = []
     adapter_weights = []
 
@@ -57,7 +61,7 @@ def load_loras(
         path, weight = parse_lora_arg(spec)
         adapter_name = f"lora_{i}"
 
-        pipeline.load_lora_weights(
+        p.load_lora_weights(
             str(path.parent),
             weight_name=path.name,
             adapter_name=adapter_name,
@@ -68,4 +72,4 @@ def load_loras(
 
     # Set all adapters with their weights
     if adapter_names:
-        pipeline.set_adapters(adapter_names, adapter_weights=adapter_weights)
+        p.set_adapters(adapter_names, adapter_weights=adapter_weights)

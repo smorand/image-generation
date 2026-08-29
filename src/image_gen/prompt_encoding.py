@@ -5,7 +5,7 @@ import os
 import sys
 import warnings
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # Suppress warnings before imports
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -50,15 +50,18 @@ class SDXLPromptEncoder:
         Args:
             pipeline: Loaded SDXL pipeline
         """
-        from compel import Compel, ReturnedEmbeddingsType
+        from compel import Compel, ReturnedEmbeddingsType  # type: ignore[import-untyped]  # no py.typed
 
         self.pipeline = pipeline
+        # diffusers registers submodules (tokenizer, text_encoder, ...) dynamically
+        # at runtime; they are not visible in the pipeline class's static type.
+        p: Any = pipeline
 
         # Suppress compel deprecation warning (printed to stderr)
         with suppress_output():
             self.compel = Compel(
-                tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
-                text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
+                tokenizer=[p.tokenizer, p.tokenizer_2],
+                text_encoder=[p.text_encoder, p.text_encoder_2],
                 returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
                 requires_pooled=[False, True],
                 truncate_long_prompts=False,  # Enable long prompt support

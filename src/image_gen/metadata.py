@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import piexif
+import piexif  # type: ignore[import-untyped]  # piexif ships no py.typed/stubs
 from PIL import Image
 
 
@@ -49,11 +49,23 @@ class GenerationMetadata:
 
 def _build_exif_bytes(metadata: GenerationMetadata) -> bytes:
     """Encode metadata JSON into EXIF UserComment (tag 37510) bytes."""
-    exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
+    exif_dict: dict[str, dict[int, object] | None] = {
+        "0th": {},
+        "Exif": {},
+        "GPS": {},
+        "1st": {},
+        "thumbnail": None,
+    }
     # UserComment requires a charset prefix.
     user_comment = b"ASCII\x00\x00\x00" + metadata.to_json().encode("utf-8")
-    exif_dict["Exif"][piexif.ExifIFD.UserComment] = user_comment
-    exif_dict["0th"][piexif.ImageIFD.Software] = "image-gen (SDXL)"
+    exif_ifd = exif_dict["Exif"]
+    if exif_ifd is None:
+        raise RuntimeError("unreachable: exif_dict['Exif'] is always a dict, never None")
+    exif_ifd[piexif.ExifIFD.UserComment] = user_comment
+    zeroth_ifd = exif_dict["0th"]
+    if zeroth_ifd is None:
+        raise RuntimeError("unreachable: exif_dict['0th'] is always a dict, never None")
+    zeroth_ifd[piexif.ImageIFD.Software] = "image-gen (SDXL)"
     return piexif.dump(exif_dict)
 
 

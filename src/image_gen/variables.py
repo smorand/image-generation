@@ -12,7 +12,7 @@ import random
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 
@@ -247,7 +247,17 @@ def clean_prompt(text: str) -> str:
     return text.strip()
 
 
-def resolve_prompt(spec: VarSpec, rng: random.Random) -> tuple[str, str | None, dict[str, str]]:
+class PromptSpec(Protocol):
+    """Structural shape resolve_prompt needs, satisfied by VarSpec and
+    video_gen's VideoVarSpec alike (they share these fields but are otherwise
+    unrelated dataclasses, so a nominal type would reject the latter)."""
+
+    template_prompt: str
+    negative_prompt: str | None
+    variables: dict[str, list[Option]]
+
+
+def resolve_prompt(spec: PromptSpec, rng: random.Random) -> tuple[str, str | None, dict[str, str]]:
     """Resolve the prompt and negative prompt templates once.
 
     Returns the cleaned prompt, the cleaned negative prompt (or None when the
