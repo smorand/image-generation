@@ -18,9 +18,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 try:
-    from openai import OpenAI
+    from openai import APIConnectionError, OpenAI
 except ImportError:  # pragma: no cover - exercised only when the SDK is absent
     OpenAI = None  # type: ignore[assignment,misc]
+
+    class APIConnectionError(Exception):  # type: ignore[no-redef]
+        """Placeholder so generate_variation_with_retry can still reference this
+        type when the openai SDK isn't installed; generate_variation() would
+        already have raised RuntimeError before ever reaching that code."""
+
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
@@ -315,13 +321,15 @@ def generate_variation_with_retry(
     previous_prompts: list[str],
     temperature: float = 1.0,
     max_attempts: int = 20,
-    max_backoff: float = 15.0,
+    max_backoff: float = 120.0,
 ) -> VariationResult:
-    """Call generate_variation, retrying on invalid-JSON failures.
+    """Call generate_variation, retrying on invalid-JSON or connection failures.
 
-    Retries only on ValueError (invalid/unparsable JSON response), with
+    Retries on ValueError (invalid/unparsable JSON response) and on
+    APIConnectionError (dropped connection, DNS failure, timeout, ...), with
     exponential backoff (1s, 2s, 4s, ... capped at max_backoff). Other
-    failures (e.g. RuntimeError for a missing SDK) propagate immediately.
+    failures (e.g. RuntimeError for a missing SDK, auth errors) propagate
+    immediately since retrying them can't help.
 
     Args:
         config: Resolved LLM endpoint config.
@@ -331,17 +339,19 @@ def generate_variation_with_retry(
         vocabulary: Optional vocabulary text, or None.
         previous_prompts: Prompts already produced earlier in this run.
         temperature: Sampling temperature (diversity).
-        max_attempts: Maximum number of attempts before giving up.
-        max_backoff: Cap, in seconds, on the exponential backoff delay.
+        max_attempts: Maximum number of attempts before giving up (default: 20).
+        max_backoff: Cap, in seconds, on the exponential backoff delay
+            (default: 120s / 2 minutes).
 
     Returns:
         The new prompt and negative prompt.
 
     Raises:
         ValueError: If every attempt fails to produce valid JSON.
+        APIConnectionError: If every attempt fails to connect.
         RuntimeError: If the `openai` package is not installed.
     """
-    last_error: ValueError | None = None
+    last_error: ValueError | APIConnectionError | None = None
     for attempt in range(1, max_attempts + 1):
         try:
             return generate_variation(
@@ -353,13 +363,15 @@ def generate_variation_with_retry(
                 previous_prompts,
                 temperature=temperature,
             )
-        except ValueError as exc:
+        except (ValueError, APIConnectionError) as exc:
             last_error = exc
             if attempt == max_attempts:
                 break
             delay = min(2 ** (attempt - 1), max_backoff)
+            kind = "connection" if isinstance(exc, APIConnectionError) else "invalid-JSON"
             print(
-                f"Warning: LLM variation attempt {attempt}/{max_attempts} failed ({exc}); retrying in {delay:.0f}s...",
+                f"Warning: LLM variation attempt {attempt}/{max_attempts} failed "
+                f"({kind}: {exc}); retrying in {delay:.0f}s...",
                 file=sys.stderr,
             )
             time.sleep(delay)
@@ -368,6 +380,10 @@ def generate_variation_with_retry(
         # unreachable: max_attempts >= 1, so the loop above always runs at
         # least once and sets last_error before falling through here.
         raise RuntimeError("unreachable: no attempt was made")
+    if isinstance(last_error, APIConnectionError):
+        # Re-raise as-is: it's already an accurate, specific error (unlike
+        # the invalid-JSON case below, wrapping would just lose information).
+        raise last_error
     raise ValueError(
         f"LLM did not return valid JSON after {max_attempts} attempts. Last error: {last_error}"
     ) from last_error

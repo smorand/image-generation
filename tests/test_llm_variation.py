@@ -2,6 +2,7 @@
 
 import json
 
+import httpx
 import pytest
 
 from image_gen import llm_variation
@@ -296,8 +297,8 @@ def test_generate_variation_with_retry_backoff_capped(monkeypatch):
         generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
 
     assert len(sleeps) == 19
-    assert max(sleeps) == 15
-    assert sleeps[:5] == [1, 2, 4, 8, 15]
+    assert max(sleeps) == 120  # capped at 2 minutes
+    assert sleeps[:5] == [1, 2, 4, 8, 16]
 
 
 def test_generate_variation_with_retry_does_not_retry_runtime_error(monkeypatch):
@@ -312,4 +313,48 @@ def test_generate_variation_with_retry_does_not_retry_runtime_error(monkeypatch)
     with pytest.raises(RuntimeError, match="no openai package"):
         generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
 
-    assert calls["n"] == 1
+
+def _connection_error(message):
+    request = httpx.Request("POST", "http://x/v1/chat/completions")
+    return llm_variation.APIConnectionError(message=message, request=request)
+
+
+def test_generate_variation_with_retry_recovers_from_connection_error(monkeypatch):
+    calls = {"n": 0}
+    sleeps = []
+
+    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _connection_error("dropped connection")
+        return VariationResult(prompt="ok prompt", negative_prompt=None)
+
+    monkeypatch.setattr(llm_variation, "generate_variation", _fake)
+    monkeypatch.setattr(llm_variation.time, "sleep", lambda s: sleeps.append(s))
+
+    result = generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
+
+    assert result.prompt == "ok prompt"
+    assert calls["n"] == 3
+    assert sleeps == [1, 2]
+
+
+def test_generate_variation_with_retry_gives_up_after_max_attempts_on_connection_error(monkeypatch):
+    def _always_fails(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+        raise _connection_error("still down")
+
+    monkeypatch.setattr(llm_variation, "generate_variation", _always_fails)
+    monkeypatch.setattr(llm_variation.time, "sleep", lambda s: None)
+
+    # Unlike the invalid-JSON case, a connection error is re-raised as-is
+    # (wrapping it as a ValueError would misrepresent what actually failed).
+    with pytest.raises(llm_variation.APIConnectionError, match="still down"):
+        generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
+
+
+def test_generate_variation_with_retry_default_attempts_and_backoff():
+    import inspect
+
+    sig = inspect.signature(generate_variation_with_retry)
+    assert sig.parameters["max_attempts"].default == 20
+    assert sig.parameters["max_backoff"].default == 120.0

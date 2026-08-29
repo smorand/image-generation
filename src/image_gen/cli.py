@@ -791,7 +791,7 @@ def generate_similar(
                         previous_variations,
                         temperature=llm_temperature,
                     )
-                except (ValueError, RuntimeError) as exc:
+                except (ValueError, RuntimeError, llm_variation.APIConnectionError) as exc:
                     typer.echo(f"Error: LLM variation failed: {exc}", err=True)
                     raise typer.Exit(1) from exc
                 iter_prompt = variation.prompt
