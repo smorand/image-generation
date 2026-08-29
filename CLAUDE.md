@@ -62,6 +62,11 @@ src/video_gen/        # image-to-video CLI (reuses image_gen.variables engine)
 ├── variables.py      # VideoVarSpec (adds template_input)
 ├── runner.py         # video generate-var loop (hot-reload)
 └── cli.py            # video-gen: generate, generate-var, info
+
+scripts/               # One-off maintenance scripts (not part of the CLI)
+└── backfill_generated_at.py  # add generated_at to images saved before that
+                              # field existed (uses file mtime). Dry-run by
+                              # default; see its docstring for --apply/--limit.
 ```
 
 ## Conventions
