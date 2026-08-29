@@ -8,6 +8,7 @@ import pytest
 from image_gen import llm_variation
 from image_gen.llm_variation import (
     LLMConfig,
+    LLMFormatError,
     VariationResult,
     format_vocabulary,
     generate_variation,
@@ -82,28 +83,46 @@ def test_format_vocabulary_truncates(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# generate_variation
+# generate_variation (fakes: tool_calls=None means "no tool call", falls back
+# to plain message content, exactly like a backend that ignored `tools`).
 # --------------------------------------------------------------------------- #
+class _FakeFunction:
+    def __init__(self, arguments):
+        self.arguments = arguments
+
+
+class _FakeToolCall:
+    def __init__(self, arguments):
+        self.function = _FakeFunction(arguments)
+
+
 class _FakeMessage:
-    def __init__(self, content):
+    def __init__(self, content=None, tool_call_arguments=None):
         self.content = content
+        self.tool_calls = [_FakeToolCall(tool_call_arguments)] if tool_call_arguments is not None else None
 
 
 class _FakeChoice:
-    def __init__(self, content):
-        self.message = _FakeMessage(content)
+    def __init__(self, content=None, tool_call_arguments=None):
+        self.message = _FakeMessage(content, tool_call_arguments)
 
 
 class _FakeResponse:
-    def __init__(self, content):
-        self.choices = [_FakeChoice(content)]
+    def __init__(self, content=None, tool_call_arguments=None):
+        self.choices = [_FakeChoice(content, tool_call_arguments)]
 
 
 class _FakeCompletions:
-    """Stand-in for client.chat.completions with scripted responses."""
+    """Stand-in for client.chat.completions with scripted responses.
+
+    Each scripted item is either:
+    - a plain string: a text-content response (as if `tools` were ignored),
+    - a ("tool", json_string) tuple: a tool-call response,
+    - an Exception instance: the call raises it (simulating a backend that
+      rejects `tools` or `response_format` outright).
+    """
 
     def __init__(self, responses):
-        # responses: list of either a string (success) or an Exception instance to raise.
         self._responses = list(responses)
         self.calls = []
 
@@ -112,7 +131,9 @@ class _FakeCompletions:
         item = self._responses.pop(0)
         if isinstance(item, Exception):
             raise item
-        return _FakeResponse(item)
+        if isinstance(item, tuple) and item[0] == "tool":
+            return _FakeResponse(tool_call_arguments=item[1])
+        return _FakeResponse(content=item)
 
 
 class _FakeChat:
@@ -133,7 +154,19 @@ def _config():
     return LLMConfig(base_url="http://x/v1", api_key="k", model="m")
 
 
-def test_generate_variation_parses_clean_json(monkeypatch):
+def test_generate_variation_uses_tool_call_response_by_default(monkeypatch):
+    fake = _FakeOpenAI([("tool", json.dumps({"prompt": "a cat in a hat", "negative_prompt": None}))])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+
+    result = generate_variation(_config(), "a cat", "blurry", "add a hat", None, [])
+
+    assert result.prompt == "a cat in a hat"
+    assert result.negative_prompt is None
+    assert "tools" in fake.chat.completions.calls[0]
+    assert fake.chat.completions.calls[0]["tool_choice"]["function"]["name"] == "submit_prompt_variation"
+
+
+def test_generate_variation_parses_clean_json_from_content(monkeypatch):
     fake = _FakeOpenAI([json.dumps({"prompt": "a cat in a hat", "negative_prompt": None})])
     monkeypatch.setattr(llm_variation, "OpenAI", fake)
 
@@ -154,9 +187,10 @@ def test_generate_variation_extracts_json_from_surrounding_text(monkeypatch):
     assert result.negative_prompt == "static"
 
 
-def test_generate_variation_retries_without_response_format(monkeypatch):
+def test_generate_variation_falls_back_through_tools_then_response_format_then_plain(monkeypatch):
     fake = _FakeOpenAI(
         [
+            RuntimeError("tools not supported"),
             RuntimeError("response_format not supported"),
             json.dumps({"prompt": "a cat variation"}),
         ]
@@ -167,16 +201,17 @@ def test_generate_variation_retries_without_response_format(monkeypatch):
 
     assert result.prompt == "a cat variation"
     calls = fake.chat.completions.calls
-    assert len(calls) == 2
-    assert "response_format" in calls[0]
-    assert "response_format" not in calls[1]
+    assert len(calls) == 3
+    assert "tools" in calls[0]
+    assert "response_format" in calls[1] and "tools" not in calls[1]
+    assert "tools" not in calls[2] and "response_format" not in calls[2]
 
 
-def test_generate_variation_invalid_json_raises(monkeypatch):
+def test_generate_variation_invalid_json_raises_llm_format_error(monkeypatch):
     fake = _FakeOpenAI(["not json at all, sorry"])
     monkeypatch.setattr(llm_variation, "OpenAI", fake)
 
-    with pytest.raises(ValueError, match="did not return valid JSON"):
+    with pytest.raises(LLMFormatError, match="did not return valid JSON"):
         generate_variation(_config(), "a cat", None, "vary it", None, [])
 
 
@@ -195,7 +230,7 @@ def test_generate_variation_non_string_negative_prompt_raises(monkeypatch):
     fake = _FakeOpenAI([content])
     monkeypatch.setattr(llm_variation, "OpenAI", fake)
 
-    with pytest.raises(ValueError, match="non-string"):
+    with pytest.raises(LLMFormatError, match="non-string"):
         generate_variation(_config(), "a cat", "blurry", "add a hat", None, [])
 
 
@@ -204,8 +239,19 @@ def test_generate_variation_non_string_prompt_raises(monkeypatch):
     fake = _FakeOpenAI([content])
     monkeypatch.setattr(llm_variation, "OpenAI", fake)
 
-    with pytest.raises(ValueError, match="non-string"):
+    with pytest.raises(LLMFormatError, match="non-string"):
         generate_variation(_config(), "a cat", None, "vary it", None, [])
+
+
+def test_generate_variation_passes_extra_messages_through(monkeypatch):
+    fake = _FakeOpenAI([json.dumps({"prompt": "a cat variation", "negative_prompt": None})])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+    extra = [{"role": "assistant", "content": "oops"}, {"role": "user", "content": "fix it"}]
+
+    generate_variation(_config(), "a cat", None, "vary it", None, [], extra_messages=extra)
+
+    sent_messages = fake.chat.completions.calls[0]["messages"]
+    assert sent_messages[-2:] == extra
 
 
 def test_generate_variation_with_retry_recovers_from_non_string_negative_prompt(monkeypatch):
@@ -220,6 +266,10 @@ def test_generate_variation_with_retry_recovers_from_non_string_negative_prompt(
     assert result.prompt == "a cat in a hat"
     assert result.negative_prompt == "blurry, low quality"
     assert len(fake.chat.completions.calls) == 2
+    # The retry's message history carries the bad response plus a corrective note.
+    second_call_messages = fake.chat.completions.calls[1]["messages"]
+    assert second_call_messages[-2] == {"role": "assistant", "content": bad}
+    assert "1st time" in second_call_messages[-1]["content"]
 
 
 def test_generate_variation_salvages_truncated_json(monkeypatch, capsys):
@@ -264,11 +314,11 @@ def test_generate_variation_without_openai_installed_raises(monkeypatch):
 # --------------------------------------------------------------------------- #
 # generate_variation_with_retry
 # --------------------------------------------------------------------------- #
-def test_generate_variation_with_retry_succeeds_after_failures(monkeypatch):
+def test_generate_variation_with_retry_succeeds_after_format_failures(monkeypatch):
     calls = {"n": 0}
     sleeps = []
 
-    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature, extra_messages=None):
         calls["n"] += 1
         if calls["n"] < 3:
             raise ValueError("LLM did not return valid JSON. Response excerpt: 'oops'")
@@ -284,27 +334,61 @@ def test_generate_variation_with_retry_succeeds_after_failures(monkeypatch):
     assert sleeps == [1, 2]
 
 
-def test_generate_variation_with_retry_backoff_capped(monkeypatch):
+def test_generate_variation_with_retry_format_budget_capped_by_default(monkeypatch):
     sleeps = []
 
-    def _always_fails(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+    def _always_fails(
+        config, base_prompt, base_negative, user_request, vocabulary, previous, temperature, extra_messages=None
+    ):
         raise ValueError("bad json")
 
     monkeypatch.setattr(llm_variation, "generate_variation", _always_fails)
     monkeypatch.setattr(llm_variation.time, "sleep", lambda s: sleeps.append(s))
 
-    with pytest.raises(ValueError, match="after 20 attempts"):
+    with pytest.raises(ValueError, match="5 format-corrective attempts"):
         generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
 
-    assert len(sleeps) == 19
-    assert max(sleeps) == 120  # capped at 2 minutes
-    assert sleeps[:5] == [1, 2, 4, 8, 16]
+    # Small, fast-failing budget: format mistakes rarely self-correct by
+    # brute-force repetition, so this must NOT burn the full 20x/120s budget
+    # reserved for genuinely transient connection errors.
+    assert len(sleeps) == 4  # max_format_attempts=5 -> 4 sleeps before giving up
+    assert max(sleeps) == 5  # capped at max_format_backoff=5s
+    assert sleeps == [1, 2, 4, 5]
+
+
+def test_generate_variation_with_retry_sends_corrective_feedback_with_growing_count(monkeypatch):
+    calls = []
+
+    def _always_fails(
+        config, base_prompt, base_negative, user_request, vocabulary, previous, temperature, extra_messages=None
+    ):
+        # Snapshot: extra_messages is the same list object mutated in place
+        # across attempts, so record a copy, not a reference.
+        calls.append(list(extra_messages) if extra_messages is not None else None)
+        raise LLMFormatError("bad shape", raw_content="{'bad': true}")
+
+    monkeypatch.setattr(llm_variation, "generate_variation", _always_fails)
+    monkeypatch.setattr(llm_variation.time, "sleep", lambda s: None)
+
+    with pytest.raises(ValueError):
+        generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
+
+    assert calls[0] is None  # first attempt: no history yet
+    # Each retry carries the growing conversation: prior (assistant, user) pairs.
+    assert len(calls[1]) == 2
+    assert len(calls[2]) == 4
+    assert len(calls[3]) == 6
+    assert calls[1][0] == {"role": "assistant", "content": "{'bad': true}"}
+    assert "1st time" in calls[1][1]["content"]
+    assert "2nd time" in calls[2][3]["content"]
+    assert "3rd time" in calls[3][5]["content"]
+    assert "times" not in calls[2][3]["content"]  # "2nd time", not "2nd times"
 
 
 def test_generate_variation_with_retry_does_not_retry_runtime_error(monkeypatch):
     calls = {"n": 0}
 
-    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature, extra_messages=None):
         calls["n"] += 1
         raise RuntimeError("no openai package")
 
@@ -323,7 +407,7 @@ def test_generate_variation_with_retry_recovers_from_connection_error(monkeypatc
     calls = {"n": 0}
     sleeps = []
 
-    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+    def _fake(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature, extra_messages=None):
         calls["n"] += 1
         if calls["n"] < 3:
             raise _connection_error("dropped connection")
@@ -339,22 +423,34 @@ def test_generate_variation_with_retry_recovers_from_connection_error(monkeypatc
     assert sleeps == [1, 2]
 
 
-def test_generate_variation_with_retry_gives_up_after_max_attempts_on_connection_error(monkeypatch):
-    def _always_fails(config, base_prompt, base_negative, user_request, vocabulary, previous, temperature):
+def test_generate_variation_with_retry_connection_error_keeps_full_budget(monkeypatch):
+    """Connection errors are unrelated to prompt content: no corrective message,
+    and the full 20-attempt/120s budget applies (unlike format errors)."""
+    sleeps = []
+
+    def _always_fails(
+        config, base_prompt, base_negative, user_request, vocabulary, previous, temperature, extra_messages=None
+    ):
+        assert extra_messages is None  # never grows the conversation for connection errors
         raise _connection_error("still down")
 
     monkeypatch.setattr(llm_variation, "generate_variation", _always_fails)
-    monkeypatch.setattr(llm_variation.time, "sleep", lambda s: None)
+    monkeypatch.setattr(llm_variation.time, "sleep", lambda s: sleeps.append(s))
 
-    # Unlike the invalid-JSON case, a connection error is re-raised as-is
+    # Unlike the format-error case, a connection error is re-raised as-is
     # (wrapping it as a ValueError would misrepresent what actually failed).
     with pytest.raises(llm_variation.APIConnectionError, match="still down"):
         generate_variation_with_retry(_config(), "a cat", None, "vary it", None, [])
 
+    assert len(sleeps) == 19
+    assert max(sleeps) == 120
 
-def test_generate_variation_with_retry_default_attempts_and_backoff():
+
+def test_generate_variation_with_retry_default_budgets():
     import inspect
 
     sig = inspect.signature(generate_variation_with_retry)
     assert sig.parameters["max_attempts"].default == 20
     assert sig.parameters["max_backoff"].default == 120.0
+    assert sig.parameters["max_format_attempts"].default == 5
+    assert sig.parameters["max_format_backoff"].default == 5.0
