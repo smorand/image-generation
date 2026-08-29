@@ -40,6 +40,9 @@ packages = ["src/image_gen", "src/video_gen"]
 [tool.hatch.build.targets.sdist]
 include = ["src/image_gen", "src/video_gen"]
 
+[tool.coverage.report]
+fail_under = 80
+
 [tool.bandit]
 # B311 (random module): this tool uses `random` exclusively for generative-art
 # seeds and prompt-variable draws (image-gen/video-gen), never for anything
