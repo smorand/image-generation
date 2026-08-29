@@ -1,7 +1,8 @@
 """EXIF metadata handling for generated images."""
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import piexif  # type: ignore[import-untyped]  # piexif ships no py.typed/stubs
@@ -38,6 +39,9 @@ class GenerationMetadata:
     source_image: str | None = None
     # --vary instruction text, set only by generate-similar --vary (LLM mode).
     llm_request: str | None = None
+    # Local timestamp of generation, ISO 8601 ("2026-08-29T14:30:05"); stamped
+    # automatically at construction time, right after the image is produced.
+    generated_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     def to_json(self) -> str:
         """Convert to a single-line JSON string (kept one line for get_info.sh)."""
@@ -62,10 +66,18 @@ def _build_exif_bytes(metadata: GenerationMetadata) -> bytes:
     if exif_ifd is None:
         raise RuntimeError("unreachable: exif_dict['Exif'] is always a dict, never None")
     exif_ifd[piexif.ExifIFD.UserComment] = user_comment
+    # Standard EXIF date tags, so Finder/Preview/exiftool/photo managers show
+    # the actual generation time instead of falling back to the file's mtime
+    # (which changes on every copy/move and says nothing about generation).
+    # EXIF dates are ASCII "YYYY:MM:DD HH:MM:SS", no timezone, no "T" separator.
+    exif_date = metadata.generated_at.replace("-", ":").replace("T", " ")
+    exif_ifd[piexif.ExifIFD.DateTimeOriginal] = exif_date
+    exif_ifd[piexif.ExifIFD.DateTimeDigitized] = exif_date
     zeroth_ifd = exif_dict["0th"]
     if zeroth_ifd is None:
         raise RuntimeError("unreachable: exif_dict['0th'] is always a dict, never None")
     zeroth_ifd[piexif.ImageIFD.Software] = "image-gen (SDXL)"
+    zeroth_ifd[piexif.ImageIFD.DateTime] = exif_date
     return piexif.dump(exif_dict)
 
 

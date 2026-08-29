@@ -9,7 +9,8 @@ same tooling habits apply.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 
@@ -35,6 +36,9 @@ class VideoMetadata:
     # Chained generation: number of segments and the per-segment prompt series.
     segments: int | None = None
     prompt_series: list[str] | None = None
+    # Local timestamp of generation, ISO 8601 ("2026-08-29T14:30:05"); stamped
+    # automatically at construction time, right after the clip is produced.
+    generated_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     def to_json(self) -> str:
         """Single-line JSON string (kept one line, like image-gen metadata)."""

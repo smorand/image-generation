@@ -1,6 +1,7 @@
 """Tests for metadata embedding (EXIF UserComment in JPEG and PNG)."""
 
 import json
+from datetime import datetime
 
 import piexif
 import pytest
@@ -50,6 +51,17 @@ def test_to_json_is_single_line_and_includes_variables():
     data = json.loads(js)
     assert data["variables"]["eth"] == "inuit"
     assert data["seed"] == 123
+
+
+def test_generated_at_is_stamped_automatically():
+    meta = _meta()
+    # ISO 8601, second precision, no explicit arg needed at any call site.
+    datetime.fromisoformat(meta.generated_at)
+
+
+def test_generated_at_can_be_overridden_explicitly():
+    meta = _meta(generated_at="2020-01-01T00:00:00")
+    assert meta.generated_at == "2020-01-01T00:00:00"
 
 
 def test_save_png_embeds_metadata(tmp_path):
@@ -111,3 +123,27 @@ def test_load_metadata_missing_exif_raises(tmp_path):
 def test_load_metadata_missing_file_raises(tmp_path):
     with pytest.raises(ValueError):
         load_metadata(tmp_path / "does-not-exist.jpg")
+
+
+def test_save_writes_standard_exif_date_tags(tmp_path):
+    """Finder/Preview/exiftool read the standard EXIF date tags, not our JSON
+    blob in UserComment, so they must carry the generation date too."""
+    img = Image.new("RGB", (16, 16))
+    out = tmp_path / "img.jpg"
+    save_image_with_metadata(img, out, _meta(generated_at="2026-08-29T14:30:05"))
+
+    exif = piexif.load(str(out))
+    expected = b"2026:08:29 14:30:05"
+    assert exif["Exif"][piexif.ExifIFD.DateTimeOriginal] == expected
+    assert exif["Exif"][piexif.ExifIFD.DateTimeDigitized] == expected
+    assert exif["0th"][piexif.ImageIFD.DateTime] == expected
+
+
+def test_load_metadata_roundtrip_includes_generated_at(tmp_path):
+    img = Image.new("RGB", (16, 16))
+    out = tmp_path / "img.png"
+    save_image_with_metadata(img, out, _meta(generated_at="2026-08-29T14:30:05"))
+
+    data = load_metadata(out)
+
+    assert data["generated_at"] == "2026-08-29T14:30:05"
