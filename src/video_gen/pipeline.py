@@ -104,24 +104,17 @@ class VideoPipeline:
             # precision issue. Use `ltx` on Apple Silicon. Kept loadable for
             # experimentation and for CUDA hosts, where Wan works.
             warnings.warn(
-                "Wan on MPS/Metal produces broken output (known limitation); "
-                "use --backend ltx on Apple Silicon.",
+                "Wan on MPS/Metal produces broken output (known limitation); use --backend ltx on Apple Silicon.",
                 stacklevel=2,
             )
 
-        vae = AutoencoderKLWan.from_pretrained(
-            self.repo, subfolder="vae", torch_dtype=torch.float32
-        )
-        self._pipe = WanImageToVideoPipeline.from_pretrained(
-            self.repo, vae=vae, torch_dtype=self.dtype
-        )
+        vae = AutoencoderKLWan.from_pretrained(self.repo, subfolder="vae", torch_dtype=torch.float32)
+        self._pipe = WanImageToVideoPipeline.from_pretrained(self.repo, vae=vae, torch_dtype=self.dtype)
 
     def _load_ltx(self) -> None:
         from diffusers import LTXImageToVideoPipeline
 
-        self._pipe = LTXImageToVideoPipeline.from_pretrained(
-            self.repo, torch_dtype=self.dtype
-        )
+        self._pipe = LTXImageToVideoPipeline.from_pretrained(self.repo, torch_dtype=self.dtype)
 
     def _place(self) -> None:
         pipe = self._pipe

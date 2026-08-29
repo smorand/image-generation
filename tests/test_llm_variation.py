@@ -189,6 +189,38 @@ def test_generate_variation_missing_prompt_falls_back_to_base(monkeypatch):
     assert result.negative_prompt == "blurry"
 
 
+def test_generate_variation_non_string_negative_prompt_raises(monkeypatch):
+    content = json.dumps({"prompt": "a cat in a hat", "negative_prompt": {"tags": ["blurry"]}})
+    fake = _FakeOpenAI([content])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+
+    with pytest.raises(ValueError, match="non-string"):
+        generate_variation(_config(), "a cat", "blurry", "add a hat", None, [])
+
+
+def test_generate_variation_non_string_prompt_raises(monkeypatch):
+    content = json.dumps({"prompt": ["a", "cat"], "negative_prompt": "blurry"})
+    fake = _FakeOpenAI([content])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+
+    with pytest.raises(ValueError, match="non-string"):
+        generate_variation(_config(), "a cat", None, "vary it", None, [])
+
+
+def test_generate_variation_with_retry_recovers_from_non_string_negative_prompt(monkeypatch):
+    bad = json.dumps({"prompt": "a cat in a hat", "negative_prompt": {"tags": ["blurry"]}})
+    good = json.dumps({"prompt": "a cat in a hat", "negative_prompt": "blurry, low quality"})
+    fake = _FakeOpenAI([bad, good])
+    monkeypatch.setattr(llm_variation, "OpenAI", fake)
+    monkeypatch.setattr(llm_variation.time, "sleep", lambda _seconds: None)
+
+    result = generate_variation_with_retry(_config(), "a cat", "blurry", "add a hat", None, [])
+
+    assert result.prompt == "a cat in a hat"
+    assert result.negative_prompt == "blurry, low quality"
+    assert len(fake.chat.completions.calls) == 2
+
+
 def test_generate_variation_salvages_truncated_json(monkeypatch, capsys):
     content = '```json\n{"prompt": "a cat wearing a tiny hat, detailed fur, high'
     fake = _FakeOpenAI([content])

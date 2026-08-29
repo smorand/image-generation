@@ -1,6 +1,5 @@
 """Prompt encoding with compel for long prompts and weighting support."""
 
-import io
 import logging
 import os
 import sys
@@ -124,9 +123,7 @@ class SDXLPromptEncoder:
                 negative_conditioning, negative_pooled = self.compel("")
 
         # Pad embeddings to same length (required by diffusers pipeline)
-        conditioning, negative_conditioning = self._pad_embeddings(
-            conditioning, negative_conditioning
-        )
+        conditioning, negative_conditioning = self._pad_embeddings(conditioning, negative_conditioning)
 
         return conditioning, negative_conditioning, pooled, negative_pooled
 

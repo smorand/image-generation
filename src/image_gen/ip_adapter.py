@@ -105,9 +105,7 @@ def load_ip_adapter(
     from transformers import CLIPVisionModelWithProjection
 
     if preset not in IP_ADAPTER_PRESETS:
-        raise ValueError(
-            f"Unknown IP-Adapter '{preset}'. Supported: {', '.join(SUPPORTED_IP_ADAPTERS)}"
-        )
+        raise ValueError(f"Unknown IP-Adapter '{preset}'. Supported: {', '.join(SUPPORTED_IP_ADAPTERS)}")
 
     cfg = IP_ADAPTER_PRESETS[preset]
 

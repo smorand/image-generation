@@ -73,9 +73,7 @@ def _parse_option(raw: Any, var_name: str) -> Option:
         return Option(value=str(raw))
     if isinstance(raw, dict):
         if "value" not in raw:
-            raise ValueError(
-                f"variable '{var_name}': option mapping must have a 'value' key: {raw!r}"
-            )
+            raise ValueError(f"variable '{var_name}': option mapping must have a 'value' key: {raw!r}")
         value = raw["value"]
         value = "" if value is None else str(value)
         weight = float(raw.get("weight", 1.0))
@@ -162,9 +160,7 @@ def validate_spec(spec: VarSpec) -> None:
 
     for name in PLACEHOLDER_RE.findall(spec.template_output):
         if name not in OUTPUT_BUILTINS:
-            errors.append(
-                f"template_output references <{name}> (only {sorted(OUTPUT_BUILTINS)} allowed)"
-            )
+            errors.append(f"template_output references <{name}> (only {sorted(OUTPUT_BUILTINS)} allowed)")
 
     _walk_validate(spec.variables, top_names, errors)
 
@@ -251,9 +247,7 @@ def clean_prompt(text: str) -> str:
     return text.strip()
 
 
-def resolve_prompt(
-    spec: VarSpec, rng: random.Random
-) -> tuple[str, str | None, dict[str, str]]:
+def resolve_prompt(spec: VarSpec, rng: random.Random) -> tuple[str, str | None, dict[str, str]]:
     """Resolve the prompt and negative prompt templates once.
 
     Returns the cleaned prompt, the cleaned negative prompt (or None when the

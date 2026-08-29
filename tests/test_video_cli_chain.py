@@ -31,10 +31,7 @@ class _FakePipeline:
         self.calls += 1
         # One distinct colour per segment so the frames are real and same-sized.
         shade = (self.calls * 40) % 255
-        return [
-            Image.new("RGB", (config.width, config.height), (shade, 0, 0))
-            for _ in range(config.num_frames)
-        ]
+        return [Image.new("RGB", (config.width, config.height), (shade, 0, 0)) for _ in range(config.num_frames)]
 
 
 def test_chain_command_writes_mp4_and_sidecar(tmp_path, monkeypatch):
@@ -49,13 +46,22 @@ def test_chain_command_writes_mp4_and_sidecar(tmp_path, monkeypatch):
         app,
         [
             "chain",
-            "-i", str(seed_img),
-            "-p", "first move",
-            "-p", "second move",
-            "-o", str(out),
-            "--seg-duration", "0.5",
-            "-W", "128", "-H", "128",
-            "--seed", "42",
+            "-i",
+            str(seed_img),
+            "-p",
+            "first move",
+            "-p",
+            "second move",
+            "-o",
+            str(out),
+            "--seg-duration",
+            "0.5",
+            "-W",
+            "128",
+            "-H",
+            "128",
+            "--seed",
+            "42",
         ],
     )
 
@@ -84,12 +90,20 @@ def test_chain_command_pads_prompts_to_segments(tmp_path, monkeypatch):
         app,
         [
             "chain",
-            "-i", str(seed_img),
-            "-p", "only prompt",
-            "--segments", "3",
-            "-o", str(out),
-            "--seg-duration", "0.5",
-            "-W", "128", "-H", "128",
+            "-i",
+            str(seed_img),
+            "-p",
+            "only prompt",
+            "--segments",
+            "3",
+            "-o",
+            str(out),
+            "--seg-duration",
+            "0.5",
+            "-W",
+            "128",
+            "-H",
+            "128",
         ],
     )
 

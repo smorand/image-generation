@@ -55,9 +55,7 @@ def get_scheduler(name: str, config: dict) -> object:
         Configured scheduler instance
     """
     if name not in SCHEDULER_MAPPING:
-        raise ValueError(
-            f"Unknown scheduler: {name}. Supported: {SUPPORTED_SCHEDULERS}"
-        )
+        raise ValueError(f"Unknown scheduler: {name}. Supported: {SUPPORTED_SCHEDULERS}")
 
     scheduler_class, extra_kwargs = SCHEDULER_MAPPING[name]
     return scheduler_class.from_config(config, **extra_kwargs)

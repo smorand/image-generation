@@ -47,12 +47,8 @@ def generate(
         str,
         typer.Option("--backend", "-b", help=f"Backend: {', '.join(BACKENDS)}"),
     ] = DEFAULT_BACKEND,
-    output: Annotated[
-        Path, typer.Option("--output", "-o", help="Output .mp4 path")
-    ] = Path("./out/video.mp4"),
-    negative_prompt: Annotated[
-        Optional[str], typer.Option("--negative-prompt", "-n", help="Negative prompt")
-    ] = None,
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output .mp4 path")] = Path("./out/video.mp4"),
+    negative_prompt: Annotated[Optional[str], typer.Option("--negative-prompt", "-n", help="Negative prompt")] = None,
     duration: Annotated[
         float, typer.Option("--duration", "-d", help="Clip length in seconds", min=0.5, max=10.0)
     ] = 3.0,
@@ -109,8 +105,7 @@ def generate(
 
     dur = frames_to_duration(frames, eff_fps)
     typer.echo(
-        f"Generating {dur}s ({frames} frames @ {eff_fps} fps), "
-        f"{eff_width}x{eff_height}, {eff_steps} steps, seed {seed}"
+        f"Generating {dur}s ({frames} frames @ {eff_fps} fps), {eff_width}x{eff_height}, {eff_steps} steps, seed {seed}"
     )
     typer.echo(f"  device={pipe.device} dtype={pipe.dtype}")
     typer.echo(f"  prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
@@ -169,13 +164,9 @@ def chain(
             min=1,
         ),
     ] = None,
-    backend: Annotated[
-        str, typer.Option("--backend", "-b", help=f"Backend: {', '.join(BACKENDS)}")
-    ] = DEFAULT_BACKEND,
+    backend: Annotated[str, typer.Option("--backend", "-b", help=f"Backend: {', '.join(BACKENDS)}")] = DEFAULT_BACKEND,
     output: Annotated[Path, typer.Option("--output", "-o", help="Output .mp4 path")] = Path("./out/chain.mp4"),
-    negative_prompt: Annotated[
-        Optional[str], typer.Option("--negative-prompt", "-n", help="Negative prompt")
-    ] = None,
+    negative_prompt: Annotated[Optional[str], typer.Option("--negative-prompt", "-n", help="Negative prompt")] = None,
     seg_duration: Annotated[
         float,
         typer.Option("--seg-duration", "-d", help="Length of EACH segment in seconds", min=0.5, max=6.0),
@@ -271,10 +262,7 @@ def chain(
         return pipe.generate(config)
 
     def _on_segment(i: int, total: int, seg_prompt: str, seg_seed: int) -> None:
-        typer.echo(
-            f"  [seg {i + 1}/{total}] seed={seg_seed} "
-            f"{seg_prompt[:70]}{'...' if len(seg_prompt) > 70 else ''}"
-        )
+        typer.echo(f"  [seg {i + 1}/{total}] seed={seg_seed} {seg_prompt[:70]}{'...' if len(seg_prompt) > 70 else ''}")
 
     t0 = time.time()
     frames = generate_chain(

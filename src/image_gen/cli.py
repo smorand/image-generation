@@ -233,8 +233,7 @@ def generate(
         Optional[Path],
         typer.Option(
             "--log-dir",
-            help="Directory for the JSONL generation log (one line per image, "
-            "daily-rotated). Omit to disable logging.",
+            help="Directory for the JSONL generation log (one line per image, daily-rotated). Omit to disable logging.",
         ),
     ] = None,
 ) -> None:
@@ -242,7 +241,7 @@ def generate(
     # Validate scheduler
     if scheduler not in SUPPORTED_SCHEDULERS:
         typer.echo(
-            f"Error: Unknown scheduler '{scheduler}'. " f"Supported: {', '.join(SUPPORTED_SCHEDULERS)}",
+            f"Error: Unknown scheduler '{scheduler}'. Supported: {', '.join(SUPPORTED_SCHEDULERS)}",
             err=True,
         )
         raise typer.Exit(1)
@@ -250,8 +249,7 @@ def generate(
     # Validate IP-Adapter preset
     if ip_adapter not in SUPPORTED_IP_ADAPTERS:
         typer.echo(
-            f"Error: Unknown IP-Adapter '{ip_adapter}'. "
-            f"Supported: {', '.join(SUPPORTED_IP_ADAPTERS)}",
+            f"Error: Unknown IP-Adapter '{ip_adapter}'. Supported: {', '.join(SUPPORTED_IP_ADAPTERS)}",
             err=True,
         )
         raise typer.Exit(1)
@@ -287,9 +285,7 @@ def generate(
         typer.echo(f"Loading IP-Adapter ({ip_adapter})...")
         effective_ip_scale = pipeline.load_ip_adapter(ip_adapter, ip_adapter_scale)
         ip_adapter_ref_images = load_reference_images(ip_adapter_image)
-        typer.echo(
-            f"  {len(ip_adapter_ref_images)} reference image(s), scale {effective_ip_scale}"
-        )
+        typer.echo(f"  {len(ip_adapter_ref_images)} reference image(s), scale {effective_ip_scale}")
 
     # Create generation config
     config = GenerationConfig(
@@ -314,7 +310,7 @@ def generate(
     typer.echo(f"  Prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
     typer.echo(f"  Size: {width}x{height}, Steps: {steps}, CFG: {cfg_scale}")
     if hires_fix:
-        typer.echo(f"  Hi-res fix: {hires_scale}x, {hires_steps} steps, " f"denoising {hires_denoising}")
+        typer.echo(f"  Hi-res fix: {hires_scale}x, {hires_steps} steps, denoising {hires_denoising}")
 
     images = pipeline.generate(config)
 
@@ -395,8 +391,7 @@ def generate_similar(
         typer.Option(
             "--model",
             "-m",
-            help="Override the source's model (defaults to looking up the source's "
-            "model filename inside --model-dir)",
+            help="Override the source's model (defaults to looking up the source's model filename inside --model-dir)",
             exists=True,
             file_okay=True,
             dir_okay=False,
@@ -518,9 +513,7 @@ def generate_similar(
     ] = None,
     hires_denoising: Annotated[
         Optional[float],
-        typer.Option(
-            "--hires-denoising", help="Override the source's hi-res fix denoising", min=0.0, max=1.0
-        ),
+        typer.Option("--hires-denoising", help="Override the source's hi-res fix denoising", min=0.0, max=1.0),
     ] = None,
     log_dir: Annotated[
         Optional[Path],
@@ -551,8 +544,7 @@ def generate_similar(
         Optional[Path],
         typer.Option(
             "--vocab",
-            help="Vocabulary file (generate-var spec format) injected as inspiration for "
-            "--vary. Requires --vary.",
+            help="Vocabulary file (generate-var spec format) injected as inspiration for --vary. Requires --vary.",
             exists=True,
             file_okay=True,
             dir_okay=False,
@@ -686,8 +678,8 @@ def generate_similar(
 
         # Resolve every other parameter: override if given, else this source's value.
         resolved_prompt = prompt if prompt is not None else meta["prompt"]
-        resolved_negative = negative_prompt if negative_prompt is not None else meta.get(
-            "negative_prompt", DEFAULT_NEGATIVE_PROMPT
+        resolved_negative = (
+            negative_prompt if negative_prompt is not None else meta.get("negative_prompt", DEFAULT_NEGATIVE_PROMPT)
         )
         resolved_width = width if width is not None else meta.get("width", 1024)
         resolved_height = height if height is not None else meta.get("height", 1024)
@@ -701,9 +693,7 @@ def generate_similar(
         resolved_hires_fix = hires_fix if hires_fix is not None else meta.get("hires_fix", False)
         resolved_hires_scale = hires_scale if hires_scale is not None else meta.get("hires_scale", 1.5)
         resolved_hires_steps = hires_steps if hires_steps is not None else meta.get("hires_steps", 15)
-        resolved_hires_denoising = (
-            hires_denoising if hires_denoising is not None else meta.get("hires_denoising", 0.5)
-        )
+        resolved_hires_denoising = hires_denoising if hires_denoising is not None else meta.get("hires_denoising", 0.5)
 
         # IP-Adapter: overriding the reference image(s) resets preset/scale to `generate`
         # defaults unless also explicitly overridden; otherwise reuse the source as-is.

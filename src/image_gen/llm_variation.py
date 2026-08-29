@@ -107,9 +107,7 @@ def resolve_llm_config(
     if not resolved_model:
         missing.append(f"--llm-model or ${ENV_MODEL_NAME}")
     if missing:
-        raise ValueError(
-            "generate-similar --vary requires an LLM endpoint. Set: " + "; ".join(missing)
-        )
+        raise ValueError("generate-similar --vary requires an LLM endpoint. Set: " + "; ".join(missing))
 
     return LLMConfig(base_url=resolved_base_url, api_key=resolved_api_key, model=resolved_model)
 
@@ -192,8 +190,7 @@ def _salvage_truncated_json(content: str) -> dict | None:
         negative = _unescape_json_string(neg_match.group(1))
 
     print(
-        "Warning: LLM response was truncated (likely hit the output token limit); "
-        "using the partial prompt as-is.",
+        "Warning: LLM response was truncated (likely hit the output token limit); using the partial prompt as-is.",
         file=sys.stderr,
     )
     return {"prompt": prompt, "negative_prompt": negative}
@@ -261,9 +258,7 @@ def generate_variation(
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
             "role": "user",
-            "content": _build_user_message(
-                base_prompt, base_negative, user_request, vocabulary, previous_prompts
-            ),
+            "content": _build_user_message(base_prompt, base_negative, user_request, vocabulary, previous_prompts),
         },
     ]
 
@@ -288,9 +283,19 @@ def generate_variation(
     content = response.choices[0].message.content or ""
     data = _extract_json(content)
 
-    prompt = data.get("prompt") or base_prompt
-    negative = data.get("negative_prompt")
-    return VariationResult(prompt=prompt, negative_prompt=negative)
+    raw_prompt = data.get("prompt")
+    if raw_prompt is not None and not isinstance(raw_prompt, str):
+        # Some backends don't strictly follow the requested JSON schema and
+        # return a nested object/array instead of a plain string. Passing
+        # that through would eventually crash the prompt encoder (it expects
+        # str), so treat it like malformed JSON: raise to trigger a retry.
+        raise ValueError(f'LLM returned a non-string "prompt" ({type(raw_prompt).__name__}).')
+    prompt = raw_prompt or base_prompt
+
+    raw_negative = data.get("negative_prompt")
+    if raw_negative is not None and not isinstance(raw_negative, str):
+        raise ValueError(f'LLM returned a non-string "negative_prompt" ({type(raw_negative).__name__}).')
+    return VariationResult(prompt=prompt, negative_prompt=raw_negative)
 
 
 def generate_variation_with_retry(
@@ -346,8 +351,7 @@ def generate_variation_with_retry(
                 break
             delay = min(2 ** (attempt - 1), max_backoff)
             print(
-                f"Warning: LLM variation attempt {attempt}/{max_attempts} failed "
-                f"({exc}); retrying in {delay:.0f}s...",
+                f"Warning: LLM variation attempt {attempt}/{max_attempts} failed ({exc}); retrying in {delay:.0f}s...",
                 file=sys.stderr,
             )
             time.sleep(delay)

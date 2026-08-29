@@ -40,6 +40,17 @@ packages = ["src/image_gen", "src/video_gen"]
 [tool.hatch.build.targets.sdist]
 include = ["src/image_gen", "src/video_gen"]
 
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+# Warnings filters / logging levels / env vars must be set before importing
+# heavy ML libs (torch, typer, transformers) to suppress their startup noise.
+"src/image_gen/cli.py" = ["E402"]
+"src/image_gen/prompt_encoding.py" = ["E402"]
+"src/video_gen/cli.py" = ["E402"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",

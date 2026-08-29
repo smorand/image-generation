@@ -67,9 +67,7 @@ def _make_source(tmp_path, **meta_overrides):
     )
     base.update(meta_overrides)
     source = tmp_path / "source.jpg"
-    Image.new("RGB", (512, 512), (5, 5, 5)).save(
-        source, "JPEG", exif=_exif_bytes(GenerationMetadata(**base))
-    )
+    Image.new("RGB", (512, 512), (5, 5, 5)).save(source, "JPEG", exif=_exif_bytes(GenerationMetadata(**base)))
     return source
 
 
@@ -110,8 +108,10 @@ def test_generate_similar_writes_count_images_with_distinct_seeds(tmp_path, monk
         [
             "generate-similar",
             str(source),
-            "--count", "3",
-            "--model-dir", str(model_dir),
+            "--count",
+            "3",
+            "--model-dir",
+            str(model_dir),
         ],
     )
 
@@ -142,9 +142,12 @@ def test_generate_similar_applies_override(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "1",
-            "--model-dir", str(model_dir),
-            "--clip-skip", "4",
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
+            "--clip-skip",
+            "4",
         ],
     )
 
@@ -167,8 +170,10 @@ def test_generate_similar_missing_model_errors(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "1",
-            "--model-dir", str(empty_model_dir),
+            "--count",
+            "1",
+            "--model-dir",
+            str(empty_model_dir),
         ],
     )
 
@@ -188,8 +193,10 @@ def test_generate_similar_missing_metadata_errors(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(plain),
-            "--count", "1",
-            "--model-dir", str(model_dir),
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
         ],
     )
 
@@ -210,9 +217,12 @@ def test_generate_similar_explicit_output_single(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "1",
-            "--model-dir", str(model_dir),
-            "--output", str(out),
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
+            "--output",
+            str(out),
         ],
     )
 
@@ -233,9 +243,12 @@ def test_generate_similar_explicit_output_multi_numbered(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "2",
-            "--model-dir", str(model_dir),
-            "--output", str(out),
+            "--count",
+            "2",
+            "--model-dir",
+            str(model_dir),
+            "--output",
+            str(out),
         ],
     )
 
@@ -256,8 +269,10 @@ def test_generate_similar_keep_seed_reuses_source_seed(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "3",
-            "--model-dir", str(model_dir),
+            "--count",
+            "3",
+            "--model-dir",
+            str(model_dir),
             "--keep-seed",
         ],
     )
@@ -273,7 +288,7 @@ def test_generate_similar_vocab_without_vary_errors(tmp_path, monkeypatch):
     model_dir = _setup_model_dir(tmp_path)
     vocab = tmp_path / "vocab.yaml"
     vocab.write_text(
-        "template_prompt: \"<x>\"\ntemplate_output: \"out/<number>.png\"\nvariables:\n  x: [a, b]\n",
+        'template_prompt: "<x>"\ntemplate_output: "out/<number>.png"\nvariables:\n  x: [a, b]\n',
         encoding="utf-8",
     )
 
@@ -284,9 +299,12 @@ def test_generate_similar_vocab_without_vary_errors(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "1",
-            "--model-dir", str(model_dir),
-            "--vocab", str(vocab),
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
+            "--vocab",
+            str(vocab),
         ],
     )
 
@@ -307,9 +325,12 @@ def test_generate_similar_llm_missing_config_errors(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "1",
-            "--model-dir", str(model_dir),
-            "--vary", "make it different",
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
+            "--vary",
+            "make it different",
         ],
     )
 
@@ -342,9 +363,12 @@ def test_generate_similar_vary_produces_varied_prompts(tmp_path, monkeypatch):
         [
             "generate-similar",
             str(source),
-            "--count", "3",
-            "--model-dir", str(model_dir),
-            "--vary", "add variety",
+            "--count",
+            "3",
+            "--model-dir",
+            str(model_dir),
+            "--vary",
+            "add variety",
         ],
     )
 
@@ -386,8 +410,10 @@ def test_generate_similar_multiple_sources_generates_count_each(tmp_path, monkey
             "generate-similar",
             str(source_a),
             str(source_b),
-            "--count", "2",
-            "--model-dir", str(model_dir),
+            "--count",
+            "2",
+            "--model-dir",
+            str(model_dir),
         ],
     )
 
@@ -423,8 +449,10 @@ def test_generate_similar_multiple_sources_keep_seed_uses_each_own_seed(tmp_path
             "generate-similar",
             str(source_a),
             str(source_b),
-            "--count", "2",
-            "--model-dir", str(model_dir),
+            "--count",
+            "2",
+            "--model-dir",
+            str(model_dir),
             "--keep-seed",
         ],
     )
@@ -453,9 +481,12 @@ def test_generate_similar_multiple_sources_with_output_errors(tmp_path, monkeypa
             "generate-similar",
             str(source_a),
             str(source_b),
-            "--count", "1",
-            "--model-dir", str(model_dir),
-            "--output", str(tmp_path / "out.jpg"),
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
+            "--output",
+            str(tmp_path / "out.jpg"),
         ],
     )
 
@@ -486,8 +517,10 @@ def test_generate_similar_multiple_sources_reuses_pipeline_when_config_unchanged
             "generate-similar",
             str(source_a),
             str(source_b),
-            "--count", "1",
-            "--model-dir", str(model_dir),
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
         ],
     )
 
@@ -512,8 +545,10 @@ def test_generate_similar_missing_source_warns_and_continues(tmp_path, monkeypat
             "generate-similar",
             str(source_a),
             str(missing),
-            "--count", "1",
-            "--model-dir", str(model_dir),
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
         ],
     )
 
@@ -533,8 +568,10 @@ def test_generate_similar_all_sources_missing_is_clean(tmp_path, monkeypatch):
             "generate-similar",
             str(tmp_path / "missing1.jpg"),
             str(tmp_path / "missing2.jpg"),
-            "--count", "1",
-            "--model-dir", str(model_dir),
+            "--count",
+            "1",
+            "--model-dir",
+            str(model_dir),
         ],
     )
 

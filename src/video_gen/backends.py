@@ -78,8 +78,7 @@ PRECISIONS = frozenset({"fp16", "float16", "bf16", "bfloat16", "fp32", "float32"
 
 # A generic, video-oriented negative prompt (both backends accept one).
 DEFAULT_NEGATIVE_PROMPT = (
-    "worst quality, inconsistent motion, blurry, jittery, distorted, "
-    "low quality, deformed, watermark, text"
+    "worst quality, inconsistent motion, blurry, jittery, distorted, low quality, deformed, watermark, text"
 )
 
 
@@ -88,9 +87,7 @@ def get_backend(name: str) -> BackendSpec:
     try:
         return BACKENDS[name]
     except KeyError:
-        raise ValueError(
-            f"unknown backend '{name}'. Supported: {', '.join(BACKENDS)}"
-        ) from None
+        raise ValueError(f"unknown backend '{name}'. Supported: {', '.join(BACKENDS)}") from None
 
 
 def snap_dim(value: int, multiple: int) -> int:

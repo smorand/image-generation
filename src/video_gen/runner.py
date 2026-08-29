@@ -123,10 +123,7 @@ def dry_run(spec: VideoVarSpec, rng: random.Random, samples: int, echo: Echo) ->
     start = scan_start_number(spec.template_output)
     backend = get_backend(_param(spec, {}, "backend", DEFAULT_BACKEND))
     num_frames, fps = _resolve_num_frames(spec, {}, backend)
-    echo(
-        f"backend={backend.name} frames={num_frames} fps={fps} "
-        f"duration={frames_to_duration(num_frames, fps)}s"
-    )
+    echo(f"backend={backend.name} frames={num_frames} fps={fps} duration={frames_to_duration(num_frames, fps)}s")
     for i in range(samples):
         prompt, chosen = resolve_prompt(spec, rng)
         out = render_output(spec.template_output, start + i, seed=0)
@@ -218,11 +215,7 @@ def run(
         guidance = float(_param(spec, overrides, "guidance", backend.default_guidance))
         width = int(_param(spec, overrides, "width", backend.default_width))
         height = int(_param(spec, overrides, "height", backend.default_height))
-        negative = (
-            _param(spec, overrides, "negative_prompt", None)
-            or spec.negative_prompt
-            or DEFAULT_NEGATIVE_PROMPT
-        )
+        negative = _param(spec, overrides, "negative_prompt", None) or spec.negative_prompt or DEFAULT_NEGATIVE_PROMPT
 
         duration = frames_to_duration(num_frames, fps)
         echo(

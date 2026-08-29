@@ -192,9 +192,7 @@ class SDXLPipeline:
             The effective scale applied.
         """
         self.load()
-        effective_scale = _load_ip_adapter(
-            self.pipeline, preset, scale, self.device, self.dtype
-        )
+        effective_scale = _load_ip_adapter(self.pipeline, preset, scale, self.device, self.dtype)
         self._ip_adapter_preset = preset
         self._ip_adapter_scale = effective_scale
         return effective_scale
@@ -240,9 +238,7 @@ class SDXLPipeline:
         # Shape IP-Adapter reference image(s) if any were loaded
         ip_adapter_kwargs = {}
         if config.ip_adapter_images:
-            ip_adapter_kwargs["ip_adapter_image"] = build_ip_adapter_image(
-                config.ip_adapter_images
-            )
+            ip_adapter_kwargs["ip_adapter_image"] = build_ip_adapter_image(config.ip_adapter_images)
 
         # Generate at base resolution
         result = self.pipeline(

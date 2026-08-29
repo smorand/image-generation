@@ -129,11 +129,7 @@ def _spec_yaml(out_dir, loop, status="live"):
 
 def _spec_yaml_with_color(out_dir, loop):
     text = _spec_yaml(out_dir, loop)
-    return text + (
-        "  color:\n"
-        "    - red\n"
-        "    - blue\n"
-    )
+    return text + ("  color:\n    - red\n    - blue\n")
 
 
 def test_run_loop_generates_and_manifests(tmp_path, monkeypatch):
@@ -198,7 +194,9 @@ def test_run_stop_status_exits_immediately(tmp_path, monkeypatch):
     original_save = runner.save_image_with_metadata
 
     def _save_then_stop(image, path, metadata, quality=95):
-        spec_path.write_text(_spec_yaml_with_color(out_dir, loop=0).replace("status: live", "status: stop"), encoding="utf-8")
+        spec_path.write_text(
+            _spec_yaml_with_color(out_dir, loop=0).replace("status: live", "status: stop"), encoding="utf-8"
+        )
         return original_save(image, path, metadata, quality)
 
     monkeypatch.setattr(runner, "save_image_with_metadata", _save_then_stop)
@@ -260,9 +258,7 @@ def test_run_keeps_previous_pipeline_on_bad_model(tmp_path, monkeypatch):
 
     def _save_then_bad_model(image, path, metadata, quality=95):
         if not switched["done"]:
-            new = _spec_yaml_with_color(out_dir, loop=2).replace(
-                '"fake.safetensors"', '"bad.safetensors"'
-            )
+            new = _spec_yaml_with_color(out_dir, loop=2).replace('"fake.safetensors"', '"bad.safetensors"')
             spec_path.write_text(new, encoding="utf-8")
             switched["done"] = True
         return original_save(image, path, metadata, quality)

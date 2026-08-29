@@ -67,14 +67,10 @@ def _validate(spec: VideoVarSpec) -> None:
             errors.append(f"template_prompt references undefined <{name}>")
     for name in PLACEHOLDER_RE.findall(spec.template_output):
         if name not in OUTPUT_BUILTINS:
-            errors.append(
-                f"template_output references <{name}> (only {sorted(OUTPUT_BUILTINS)} allowed)"
-            )
+            errors.append(f"template_output references <{name}> (only {sorted(OUTPUT_BUILTINS)} allowed)")
     for name in PLACEHOLDER_RE.findall(spec.template_input):
         if name not in OUTPUT_BUILTINS:
-            errors.append(
-                f"template_input references <{name}> (only {sorted(OUTPUT_BUILTINS)} allowed)"
-            )
+            errors.append(f"template_input references <{name}> (only {sorted(OUTPUT_BUILTINS)} allowed)")
     if errors:
         raise ValueError("invalid spec:\n  - " + "\n  - ".join(errors))
 
@@ -116,9 +112,7 @@ def load_video_spec(path: str | Path) -> VideoVarSpec:
     )
 
 
-def render_input(
-    template: str, number: int, seed: int, rng: random.Random
-) -> Path:
+def render_input(template: str, number: int, seed: int, rng: random.Random) -> Path:
     """Resolve ``template_input`` to a concrete existing image path.
 
     Counter/seed templates are rendered directly; globs and directories draw a
@@ -140,10 +134,7 @@ def render_input(
 
     path = Path(template)
     if path.is_dir():
-        matches = sorted(
-            p for p in path.iterdir()
-            if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
-        )
+        matches = sorted(p for p in path.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"})
         if not matches:
             raise FileNotFoundError(f"no input images in directory: {template}")
         return rng.choice(matches)

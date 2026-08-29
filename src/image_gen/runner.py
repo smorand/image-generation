@@ -224,9 +224,7 @@ def run(
                     echo("Pipeline settings changed, rebuilding...")
                     # Build into temporaries first: if this raises we keep the
                     # old pipeline AND old spec, so config stays fully coherent.
-                    new_pipeline, new_ref_images, new_ip_scale = _build_pipeline(
-                        new_spec, overrides, echo
-                    )
+                    new_pipeline, new_ref_images, new_ip_scale = _build_pipeline(new_spec, overrides, echo)
                     pipeline, ref_images, ip_scale = new_pipeline, new_ref_images, new_ip_scale
                     pipeline_sig = new_sig
                 spec = new_spec
