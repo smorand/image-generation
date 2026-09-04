@@ -197,6 +197,94 @@ def test_load_metadata_reads_imagemagick_raw_profile_text_png(tmp_path):
     assert data["seed"] == 7
 
 
+def _stringified_payload(**overrides):
+    """A UserComment JSON payload with every typed field stringified, as
+    image-sec-gallery's download hands them back after its SIV-encrypted
+    metadata round trip (every field, including numbers/bools/arrays, is
+    stored and re-read as plain text; see flatten.rs's flatten_json)."""
+    base = {
+        "prompt": "a cat",
+        "seed": "2081615060",
+        "width": "1024",
+        "height": "768",
+        "steps": "40",
+        "cfg_scale": "5.0",
+        "clip_skip": "2",
+        "hires_fix": "false",
+        "hires_scale": "1.5",
+        "hires_steps": "15",
+        "hires_denoising": "0.5",
+        "ip_adapter_scale": "0.8",
+        "lora": '["style.safetensors", "face.safetensors"]',
+        "embedding": '["emb1"]',
+        "ip_adapter_images": '["ref.png"]',
+    }
+    base.update(overrides)
+    return base
+
+
+def test_load_metadata_coerces_stringified_numeric_and_bool_fields(tmp_path):
+    """After an image-sec-gallery upload/download round trip, every
+    GenerationMetadata field comes back as a plain string (its SIV metadata
+    model has no type schema). load_metadata must coerce known fields back
+    to real int/float/bool/list so downstream consumers (generate-similar's
+    GenerationConfig) work unmodified."""
+    out = tmp_path / "img.png"
+    payload = b"ASCII\x00\x00\x00" + json.dumps(_stringified_payload()).encode("utf-8")
+    exif_bytes = _user_comment_exif_bytes(payload)
+    _save_png_with_raw_profile_chunks(out, [exif_bytes], ["zTXt"])
+
+    data = load_metadata(out)
+    assert data["seed"] == 2081615060 and isinstance(data["seed"], int)
+    assert data["width"] == 1024 and isinstance(data["width"], int)
+    assert data["height"] == 768 and isinstance(data["height"], int)
+    assert data["steps"] == 40 and isinstance(data["steps"], int)
+    assert data["clip_skip"] == 2 and isinstance(data["clip_skip"], int)
+    assert data["hires_steps"] == 15 and isinstance(data["hires_steps"], int)
+    assert data["cfg_scale"] == 5.0 and isinstance(data["cfg_scale"], float)
+    assert data["hires_scale"] == 1.5 and isinstance(data["hires_scale"], float)
+    assert data["hires_denoising"] == 0.5 and isinstance(data["hires_denoising"], float)
+    assert data["ip_adapter_scale"] == 0.8 and isinstance(data["ip_adapter_scale"], float)
+    assert data["hires_fix"] is False
+    assert data["lora"] == ["style.safetensors", "face.safetensors"]
+    assert data["embedding"] == ["emb1"]
+    assert data["ip_adapter_images"] == ["ref.png"]
+
+
+def test_load_metadata_coerces_stringified_true_bool(tmp_path):
+    out = tmp_path / "img.png"
+    payload = b"ASCII\x00\x00\x00" + json.dumps(_stringified_payload(hires_fix="true")).encode("utf-8")
+    exif_bytes = _user_comment_exif_bytes(payload)
+    _save_png_with_raw_profile_chunks(out, [exif_bytes], ["zTXt"])
+
+    data = load_metadata(out)
+    assert data["hires_fix"] is True
+
+
+def test_load_metadata_leaves_already_typed_fields_untouched(tmp_path):
+    """Files written directly by image-gen's own save_image_with_metadata
+    (never round-tripped through image-sec-gallery) already carry real
+    JSON types; the coercion step must be a no-op for them."""
+    img = Image.new("RGB", (16, 16))
+    out = tmp_path / "img.png"
+    save_image_with_metadata(img, out, _meta(hires_fix=True, hires_scale=1.5, lora=["a.safetensors"]))
+
+    data = load_metadata(out)
+    assert data["seed"] == 123 and isinstance(data["seed"], int)
+    assert data["hires_fix"] is True
+    assert data["lora"] == ["a.safetensors"]
+
+
+def test_load_metadata_malformed_numeric_field_raises(tmp_path):
+    out = tmp_path / "img.png"
+    payload = b"ASCII\x00\x00\x00" + json.dumps(_stringified_payload(seed="not-a-number")).encode("utf-8")
+    exif_bytes = _user_comment_exif_bytes(payload)
+    _save_png_with_raw_profile_chunks(out, [exif_bytes], ["zTXt"])
+
+    with pytest.raises(ValueError, match="malformed 'seed' field"):
+        load_metadata(out)
+
+
 def test_load_metadata_last_raw_profile_chunk_wins_on_duplicates(tmp_path):
     """If a file somehow ends up with more than one "Raw profile type
     exif" text chunk (same or mixed zTXt/tEXt/iTXt), Pillow's PNG chunk

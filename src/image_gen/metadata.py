@@ -118,6 +118,46 @@ def save_image_with_metadata(
     return output_path
 
 
+# Fields that must be a specific Python type (matching GenerationMetadata's
+# own field types) for downstream consumers (e.g. generate-similar building
+# a GenerationConfig). Round-tripping a file through image-sec-gallery's
+# upload/download loses all JSON typing: every field, including numbers,
+# booleans, and array-of-scalars, is stored/read back as a plain string
+# (its SIV-encrypted metadata model has no schema), so a value that started
+# as a real int/float/bool/list in our own EXIF JSON can come back as e.g.
+# "2", "5.0", "false", or '["a.safetensors"]' after that round trip. This
+# coercion is applied unconditionally: it's a no-op on values that already
+# have the right type (the direct-from-image-gen case), and fixes them up
+# when they don't (the image-sec-gallery round-trip case).
+_INT_FIELDS = ("seed", "width", "height", "steps", "clip_skip", "hires_steps")
+_FLOAT_FIELDS = ("cfg_scale", "hires_scale", "hires_denoising", "ip_adapter_scale")
+_BOOL_FIELDS = ("hires_fix",)
+_LIST_FIELDS = ("lora", "embedding", "ip_adapter_images")
+
+
+def _coerce_field_types(data: dict, path: Path) -> dict:
+    """Normalize known GenerationMetadata fields back to their real Python
+    type when they were read back as plain strings (see module comment
+    above `_INT_FIELDS`). Unknown/missing/already-correctly-typed fields
+    are left untouched."""
+    try:
+        for key in _INT_FIELDS:
+            if isinstance(data.get(key), str):
+                data[key] = int(data[key])
+        for key in _FLOAT_FIELDS:
+            if isinstance(data.get(key), str):
+                data[key] = float(data[key])
+        for key in _BOOL_FIELDS:
+            if isinstance(data.get(key), str):
+                data[key] = data[key].strip().lower() == "true"
+        for key in _LIST_FIELDS:
+            if isinstance(data.get(key), str):
+                data[key] = json.loads(data[key])
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Generation metadata in {path} has a malformed '{key}' field: {exc}") from exc
+    return data
+
+
 def load_metadata(path: Path) -> dict:
     """
     Read back the generation metadata embedded in an image's EXIF UserComment.
@@ -175,4 +215,4 @@ def load_metadata(path: Path) -> dict:
     if not isinstance(data, dict) or "prompt" not in data:
         raise ValueError(f"Generation metadata in {path} is missing the 'prompt' field.")
 
-    return data
+    return _coerce_field_types(data, path)
