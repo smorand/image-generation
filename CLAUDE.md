@@ -100,3 +100,4 @@ scripts/               # One-off maintenance scripts (not part of the CLI)
 | `.agent_docs/generate-var.md` | generate-var spec format, control model, metadata |
 | `.agent_docs/video-gen.md` | video-gen backends (Wan/LTX), spec, Mac perf, metadata |
 | `.agent_docs/generate-similar-llm.md` | `generate-similar --vary` LLM contract, env vars, fallback behavior |
+| `.agent_docs/metadata-reading.md` | `load_metadata` PNG EXIF containers (real `eXIf` vs ImageMagick `zTXt`/`tEXt`/`iTXt` raw-profile), duplicate-chunk resolution |

@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import piexif  # type: ignore[import-untyped]  # piexif ships no py.typed/stubs
-from PIL import Image
+from PIL import ExifTags, Image
 
 
 @dataclass
@@ -138,18 +138,26 @@ def load_metadata(path: Path) -> dict:
             isn't valid JSON, or the JSON doesn't look like generation
             metadata (missing the mandatory ``prompt`` key).
     """
+    # Pillow's own Image.getexif() already handles both containers we care
+    # about: a real PNG eXIf chunk / JPEG APP1 segment, AND the legacy
+    # ImageMagick zTXt/tEXt/iTXt "Raw profile type exif" convention (some
+    # EXIF writers, e.g. the little_exif Rust crate used by
+    # image-sec-gallery's `download`, only ever write the latter for PNG).
+    # piexif has no PNG support at all, so it can't read either PNG case.
+    # If more than one "Raw profile type exif" text chunk exists in a file
+    # (same or mixed zTXt/tEXt/iTXt), Pillow's PNG chunk reader resolves it
+    # for us: chunks are parsed in file order into a plain dict keyed by
+    # chunk keyword, so the last chunk in file order silently wins. No
+    # merge/error/warning logic is added here since no writer we control
+    # (or little_exif) ever produces duplicates in the first place.
     try:
         with Image.open(path) as img:
-            exif_bytes = img.info.get("exif")
+            exif = img.getexif()
+            exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
     except (OSError, FileNotFoundError) as exc:
         raise ValueError(f"Cannot open image {path}: {exc}") from exc
 
-    try:
-        exif_dict = piexif.load(exif_bytes) if exif_bytes else piexif.load(str(path))
-    except Exception as exc:
-        raise ValueError(f"No generation metadata found in {path}: {exc}") from exc
-
-    raw = exif_dict.get("Exif", {}).get(piexif.ExifIFD.UserComment)
+    raw = exif_ifd.get(ExifTags.Base.UserComment)
     if not raw:
         raise ValueError(
             f"No generation metadata found in {path} (no EXIF UserComment). "
