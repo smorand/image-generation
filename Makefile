@@ -1,4 +1,4 @@
-.PHONY: sync run run-image run-video run-dev test test-cov lint lint-fix format format-check typecheck security check build install uninstall clean clean-all info help
+.PHONY: sync run run-image run-video run-dev test test-cov lint lint-fix format format-check typecheck security check build install uninstall check-install clean clean-all info help
 
 PROJECT_NAME=image-gen
 SRC_DIR=src
@@ -126,17 +126,44 @@ build: sync
 	@uv build
 	@echo "Build complete! Artifacts in dist/"
 
-## install: Install image-gen and video-gen as uv tools (system-wide)
+## install: Install image-gen and video-gen as uv tools (system-wide, editable)
+# --editable is required: without it `uv tool install` copies the code into
+# a private venv snapshot at install time, so every later commit is silently
+# invisible to the installed `image-gen`/`video-gen` binaries until someone
+# remembers to rerun `make install` (bit us twice: two separate metadata.py
+# fixes tested fine via `uv run` but the installed tool kept failing, because
+# ~/.local/bin/image-gen pointed at a frozen non-editable copy). Editable
+# installs a thin shim that imports straight from this repo's src/, so
+# `git pull`/local edits apply immediately, same as `uv sync`'s project venv.
 install:
-	@echo "Installing image-gen and video-gen as uv tools..."
-	@uv tool install . --reinstall --force
+	@echo "Installing image-gen and video-gen as uv tools (editable)..."
+	@uv tool install --editable . --reinstall --force
 	@echo "Install complete! Run 'image-gen' or 'video-gen' from anywhere."
+	@echo "Editable install: code changes in this repo apply immediately, no reinstall needed."
 
 ## uninstall: Remove uv tools
 uninstall:
 	@echo "Uninstalling image-gen..."
 	@uv tool uninstall image-gen 2>/dev/null || echo "image-gen not installed"
 	@echo "Uninstall complete!"
+
+## check-install: Verify the installed uv tool is editable and points at this repo
+check-install:
+	@echo "Checking installed image-gen tool..."
+	@uv tool dir >/dev/null 2>&1 || (echo "Error: uv not found." && exit 1)
+	@TOOLS_DIR=$$(uv tool dir); \
+	RESOLVED=$$($${TOOLS_DIR}/image-gen/bin/python -c "import image_gen; print(image_gen.__file__)" 2>/dev/null); \
+	if [ -z "$$RESOLVED" ]; then \
+		echo "image-gen is not installed as a uv tool. Run 'make install'."; \
+		exit 1; \
+	elif [ "$${RESOLVED#$(CURDIR)}" = "$$RESOLVED" ]; then \
+		echo "STALE: installed image-gen resolves to '$$RESOLVED', not this repo ($(CURDIR))."; \
+		echo "It is likely a non-editable snapshot from before 'make install' used --editable."; \
+		echo "Fix: make install"; \
+		exit 1; \
+	else \
+		echo "OK: installed image-gen is editable and points at $$RESOLVED"; \
+	fi
 
 # ============================================================================
 # CLEANUP
@@ -206,7 +233,8 @@ help:
 	@echo ""
 	@echo "Build & Install:"
 	@echo "  build            - Build wheel and sdist packages"
-	@echo "  install          - Install image-gen + video-gen as uv tools"
+	@echo "  install          - Install image-gen + video-gen as uv tools (editable)"
+	@echo "  check-install    - Verify the installed uv tool is editable and up to date"
 	@echo "  uninstall        - Remove uv tools"
 	@echo ""
 	@echo "Cleanup:"
