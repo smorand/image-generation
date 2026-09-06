@@ -197,6 +197,27 @@ def test_load_metadata_reads_imagemagick_raw_profile_text_png(tmp_path):
     assert data["seed"] == 7
 
 
+def test_load_metadata_reads_usercomment_in_0th_ifd(tmp_path):
+    """Real PNG eXIf chunk, but with UserComment placed in the 0th/top-level
+    IFD instead of the Exif sub-IFD where save_image_with_metadata/piexif
+    put it. Some external writers (again, an image-sec-gallery round trip
+    observed in practice) do this; exiftool reads either location, so
+    load_metadata must fall back to the top-level IFD too."""
+    out = tmp_path / "img.png"
+    payload = b"ASCII\x00\x00\x00" + json.dumps({"prompt": "a 0th-ifd prompt", "seed": 42}).encode("utf-8")
+    # piexif refuses to write tag 37510 (UserComment) into "0th" (its TAGS
+    # table only allows it under "Exif", per the real EXIF spec), so build
+    # the top-level placement directly via Pillow's own Exif container,
+    # matching what the external writer observed in practice produces.
+    exif = Image.Exif()
+    exif[piexif.ExifIFD.UserComment] = payload
+    Image.new("RGB", (16, 16), (1, 2, 3)).save(out, "PNG", exif=exif.tobytes())
+
+    data = load_metadata(out)
+    assert data["prompt"] == "a 0th-ifd prompt"
+    assert data["seed"] == 42
+
+
 def _stringified_payload(**overrides):
     """A UserComment JSON payload with every typed field stringified, as
     image-sec-gallery's download hands them back after its SIV-encrypted

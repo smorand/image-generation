@@ -197,7 +197,14 @@ def load_metadata(path: Path) -> dict:
     except (OSError, FileNotFoundError) as exc:
         raise ValueError(f"Cannot open image {path}: {exc}") from exc
 
-    raw = exif_ifd.get(ExifTags.Base.UserComment)
+    # UserComment (tag 37510) is defined by the EXIF spec to live in the
+    # Exif sub-IFD, which is where save_image_with_metadata/piexif put it.
+    # Some external writers (again, image-sec-gallery's little_exif-based
+    # round trip) instead place it directly in the 0th/top-level IFD.
+    # exiftool reads either location, so fall back to the top-level IFD to
+    # match: without this, files that round-tripped through that path read
+    # back as "no EXIF UserComment" even though exiftool sees it fine.
+    raw = exif_ifd.get(ExifTags.Base.UserComment) or exif.get(ExifTags.Base.UserComment)
     if not raw:
         raise ValueError(
             f"No generation metadata found in {path} (no EXIF UserComment). "

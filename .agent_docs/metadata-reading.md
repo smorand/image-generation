@@ -72,3 +72,24 @@ field...` rather than propagating a raw `TypeError`/`ValueError` from
 `variables` (a `dict[str, str]`) is NOT in this list: `image-sec-gallery`'s
 `unflatten_map` already reconstructs it correctly as a nested object whose
 leaf values are (and always were) plain strings, so there's nothing to fix.
+
+## UserComment can land in the 0th IFD instead of the Exif sub-IFD
+
+The EXIF spec puts UserComment (tag `37510`) in the Exif sub-IFD, which is
+where `piexif`/`save_image_with_metadata` always write it, and originally
+the only place `load_metadata` looked (`exif.get_ifd(ExifTags.IFD.Exif)`).
+Some images seen in practice (again, an `image-sec-gallery` round trip,
+identifiable by the extra `"image-sec-gallery-id"` field in the JSON) carry
+tag `37510` directly in the top-level/0th IFD instead. `exiftool` reads
+either location and shows "User Comment" fine; `get_info.sh` (which shells
+out to `exiftool`) worked, while `generate-similar`/`load_metadata` raised
+"No generation metadata found ... (no EXIF UserComment)" on the exact same
+file, real `eXIf` chunk and everything, no `--vocab` typo, no stripped
+metadata.
+
+Fixed by falling back to the top-level IFD: `exif_ifd.get(UserComment) or
+exif.get(UserComment)`. `piexif.dump()` itself refuses to write tag `37510`
+under `"0th"` (its `TAGS` table only allows it under `"Exif"`), so the
+regression test (`test_load_metadata_reads_usercomment_in_0th_ifd` in
+`tests/test_metadata.py`) builds that placement directly via Pillow's own
+`Image.Exif()` container instead of piexif.
